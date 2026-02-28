@@ -1,0 +1,10 @@
+{
+  "langSet": "✅ Language has been set to **English**! You can now use commands (e.g., `!help`).",
+  "helpTitle": "How To Buy License",
+  "helpDesc": "+ You can buy regular licenses by using command **!buy**.\n+ You can buy perma license by using command **!buyperma**.\n\nIf you don't have **enough balance** to buy **licenses**, follow those steps:\n1. Use command **!setuser** to set your in-game name.\n2. Use command **!checkuser** to verify your in-game name.\n3. Use command **!world** to view current depo world.\n(**WARNING:** Don't forget to check if world has **admin/owner**!)\n4. After you are done, **deposit the currency** on the **donation box**.\n5. You will automatically receive **your balance**.\n6. You can view **current download link** with command **!link**.\n\nIf there is **any problems**, please open ticket from **#support**\n\nYou can use **!balance** command to view your balance.",
+  "helpFooter": "Licenser UYG",
+  "setUserNoArgs": "⚠️ Please provide a name! Usage: `!setuser <Name>`",
+  "setUserSuccess": "✅ Your in-game name has been successfully set to: **{name}**",
+  "checkUserNoName": "⚠️ You haven't set your in-game name yet! Please use the `!setuser <Name>` command.",
+  "checkUserSuccess": "👤 Your registered in-game name is: **{name}**"
+}
