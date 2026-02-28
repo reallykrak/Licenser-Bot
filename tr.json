@@ -2,7 +2,7 @@
   "langSet": "Dil **Türkçe** olarak ayarlandı! Artık komutları kullanabilirsiniz (örneğin: `!help`).",
   "helpTitle": "How To Buy License",
   "helpDesc": "+ **!buy** komutunu kullanarak normal lisans satın alabilirsiniz.\n+ **!buyperma** komutunu kullanarak kalıcı lisans satın alabilirsiniz.\n\nEğer **lisans** almak için **yeterli bakiyeniz** yoksa, şu adımları izleyin:\n1. Oyun içi adınızı ayarlamak için **!setuser** komutunu kullanın.\n2. Oyun içi adınızı doğrulamak için **!checkuser** komutunu kullanın.\n3. Mevcut depo dünyasını görmek için **!world** komutunu kullanın.\n(**UYARI:** Dünyada **admin/sahip** olup olmadığını kontrol etmeyi unutmayın!)\n4. İşleminiz bittikten sonra **para birimini** **bağış kutusuna (donation box)** yatırın.\n5. **Bakiyeniz** otomatik olarak hesabınıza eklenecektir.\n6. **!link** komutu ile **mevcut indirme bağlantısını** görüntüleyebilirsiniz.\n\nEğer **herhangi bir sorun** yaşarsanız, lütfen **#support** kanalından destek talebi açın.\n\nBakiyenizi görmek için **!balance** komutunu kullanabilirsiniz.",
-  "helpFooter": "Licenser UYG",
+  "helpFooter": "Nuron's krak",
   "setUserNoArgs": "Lütfen bir isim belirtin! Kullanım: `!setuser <İsim>`",
   "checkUserNoName": "Henüz oyun içi adınızı ayarlamadınız! Lütfen önce `!setuser <İsim>` komutunu kullanın."
 }
