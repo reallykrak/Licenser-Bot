@@ -5,6 +5,8 @@
   "helpFooter": "Licenser UYG",
   "setUserNoArgs": "⚠️ Please provide a name! Usage: `!setuser <Name>`",
   "setUserSuccess": "✅ Your in-game name has been successfully set to: **{name}**",
-  "checkUserNoName": "⚠️ You haven't set your in-game name yet! Please use the `!setuser <Name>` command.",
-  "checkUserSuccess": "👤 Your registered in-game name is: **{name}**"
+  "checkUserNoName": "⚠️ You haven't set your in-game name yet! Please use the `!setuser <Name>` command first.",
+  "checkUserSuccess": "👤 Your registered in-game name is: **{name}**",
+  "balanceMsg": "💸 **{name}'s Balance**\nYou have {balance} <:emoji_28:1382326426392330251>",
+  "worldMsg": "🌍 Current depo world: **krak{num}**"
 }
