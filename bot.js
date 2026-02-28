@@ -1,4 +1,3 @@
-require('dotenv').config();
 const { 
   Client, 
   GatewayIntentBits, 
@@ -9,7 +8,8 @@ const {
   ButtonStyle 
 } = require('discord.js');
 
-// Dil dosyalarını içeri aktarıyoruz
+// Config ve Dil dosyalarını içeri aktarıyoruz
+const config = require('./config.json');
 const trLang = require('./tr.json');
 const enLang = require('./en.json');
 
@@ -32,7 +32,6 @@ function getUserProfile(userId) {
   return userData.get(userId);
 }
 
-// Kullanıcının seçtiği dile göre doğru JSON objesini döndüren yardımcı fonksiyon
 function getLangData(lang) {
   return lang === 'tr' ? trLang : enLang;
 }
@@ -41,14 +40,13 @@ client.once('ready', () => {
   console.log(`Bot hazır: ${client.user.tag}`);
 });
 
-// --- BUTON ETKİLEŞİMLERİ (Dil Seçimi) ---
+// --- BUTON ETKİLEŞİMLERİ ---
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
   if (interaction.customId === 'lang_tr' || interaction.customId === 'lang_en') {
     const profile = getUserProfile(interaction.user.id);
     profile.lang = interaction.customId === 'lang_tr' ? 'tr' : 'en';
-
     const langData = getLangData(profile.lang);
 
     await interaction.update({ content: langData.langSet, components: [] });
@@ -58,9 +56,9 @@ client.on('interactionCreate', async (interaction) => {
 // --- MESAJ / KOMUT YÖNETİMİ ---
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
-  if (!message.content.startsWith('!')) return;
+  if (!message.content.startsWith(config.prefix)) return;
 
-  const args = message.content.slice(1).trim().split(/ +/);
+  const args = message.content.slice(config.prefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
   
   const validCommands = ['help', 'setuser', 'checkuser', 'buy', 'buyperma', 'world', 'link', 'balance'];
@@ -68,69 +66,55 @@ client.on('messageCreate', async (message) => {
 
   const profile = getUserProfile(message.author.id);
 
-  // Dil seçimi yapılmamışsa butonları gönder
+  // Dil seçimi kontrolü
   if (!profile.lang) {
-    const row = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId('lang_tr')
-          .setLabel('Türkçe')
-          .setStyle(ButtonStyle.Danger)
-          .setEmoji('🇹🇷'),
-        new ButtonBuilder()
-          .setCustomId('lang_en')
-          .setLabel('English')
-          .setStyle(ButtonStyle.Primary)
-          .setEmoji('🇬🇧')
-      );
-
-    return message.reply({ 
-      content: 'Lütfen dil seçiminizi yapın. / Please select your language.', 
-      components: [row] 
-    });
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('lang_tr').setLabel('Türkçe').setStyle(ButtonStyle.Danger).setEmoji('🇹🇷'),
+      new ButtonBuilder().setCustomId('lang_en').setLabel('English').setStyle(ButtonStyle.Primary).setEmoji('🇬🇧')
+    );
+    return message.reply({ content: 'Lütfen dil seçin / Please select language', components: [row] });
   }
 
-  // Kullanıcının dil verilerini çek
   const langData = getLangData(profile.lang);
 
   // --- KOMUTLAR ---
 
-  // !help Komutu
+  // !help
   if (command === 'help') {
     const embed = new EmbedBuilder()
       .setTitle(langData.helpTitle)
       .setDescription(langData.helpDesc)
-      .setColor('#000000') // Siyah renk
+      .setColor('#000000')
       .setFooter({ text: langData.helpFooter });
-
     await message.reply({ embeds: [embed] });
   }
 
-  // !setuser <İsim> Komutu
-  if (command === 'setuser') {
-    const name = args.join(' ');
-    
-    if (!name) {
-      return message.reply(langData.setUserNoArgs);
-    }
-
-    profile.inGameName = name; 
-    
-    // JSON içindeki {name} kısmını gerçek isimle değiştiriyoruz
-    const successMsg = langData.setUserSuccess.replace('{name}', name);
-    await message.reply(successMsg);
+  // !link (Sadece İngilizce ve Özel Emoji)
+  if (command === 'link') {
+    const linkEmbed = new EmbedBuilder()
+      .setTitle('<:nuronskrak:1381655242927767562> Download Link')
+      .setColor('#000000')
+      .setDescription(
+        `➤ [**Download Nuron's Krak**](https://example.com/nuron)\n` +
+        `➤ [**Download GmailLog Server**](https://example.com/gmaillog)\n` +
+        `➤ [**Download SteamLog**](https://example.com/steamlog)`
+      );
+    await message.reply({ embeds: [linkEmbed] });
   }
 
-  // !checkuser Komutu
-  if (command === 'checkuser') {
-    if (!profile.inGameName) {
-      return message.reply(langData.checkUserNoName);
-    }
+  // !setuser
+  if (command === 'setuser') {
+    const name = args.join(' ');
+    if (!name) return message.reply(langData.setUserNoArgs);
+    profile.inGameName = name;
+    await message.reply(langData.setUserSuccess.replace('{name}', name));
+  }
 
-    // JSON içindeki {name} kısmını gerçek isimle değiştiriyoruz
-    const currentNameMsg = langData.checkUserSuccess.replace('{name}', profile.inGameName);
-    await message.reply(currentNameMsg);
+  // !checkuser
+  if (command === 'checkuser') {
+    if (!profile.inGameName) return message.reply(langData.checkUserNoName);
+    await message.reply(langData.checkUserSuccess.replace('{name}', profile.inGameName));
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(config.token);
