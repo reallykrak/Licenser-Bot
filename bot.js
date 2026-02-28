@@ -52,12 +52,14 @@ const commands = [
         type: 7, // Kanal tipi
         description: 'Ticket mesajının gönderileceği kanal',
         required: true,
+        channel_types: [0] // Sadece metin kanallarını (Text Channels) gösterir
       },
       {
         name: 'kategori',
         type: 7, 
         description: 'Açılan ticketların gideceği kategori',
         required: true,
+        channel_types: [4] // Sadece KATEGORİLERİ (Categories) gösterir, hatayı çözen kısım bu!
       },
       {
         name: 'resim_gif',
@@ -111,7 +113,7 @@ client.on('interactionCreate', async (interaction) => {
       );
 
       await kanal.send({ embeds: [embed], components: [row] });
-      return interaction.reply({ content: `Ticket sistemi ${kanal} kanalına başarıyla kuruldu!`, ephemeral: true });
+      return interaction.reply({ content: `Ticket sistemi ${kanal} kanalına başarıyla kuruldu! Artık açılan biletler ${kategori} kategorisine gidecek.`, ephemeral: true });
     }
   }
 
@@ -236,7 +238,6 @@ client.on('messageCreate', async (message) => {
 
   const langData = getLangData(profile.lang);
 
-  // Mevcut Komutların Çalışma Mantığı... (Eski kodun birebir aynısı)
   if (command === 'help') {
     const embed = new EmbedBuilder().setTitle(langData.helpTitle).setDescription(langData.helpDesc).setColor('#000000').setFooter({ text: langData.helpFooter });
     await message.reply({ embeds: [embed] });
@@ -271,4 +272,4 @@ client.on('messageCreate', async (message) => {
 });
 
 client.login(config.token);
-          
+        
