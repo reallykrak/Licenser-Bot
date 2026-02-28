@@ -95,9 +95,9 @@ client.on('messageCreate', async (message) => {
       .setTitle('<:nuronskrak:1381655242927767562> Download Link')
       .setColor('#000000')
       .setDescription(
-        `➤ [**Download Nuron's Krak**](https://example.com/nuron)\n` +
-        `➤ [**Download GmailLog Server**](https://example.com/gmaillog)\n` +
-        `➤ [**Download SteamLog**](https://example.com/steamlog)`
+        `➤ [**Download Nuron's Krak**](https://discord.gg/Nwj3VXypJf)\n` +
+        `➤ [**Download GmailLog Server**](https://mega.nz/file/1mUS2ZjD#2WGo52pAeYRUASWjBGd3OheNQLgF7ypunFLv6JRKagM)\n` +
+        `➤ [**Download SteamLog**](https://mega.nz/file/s7kTHZ4a#mLh-Xp3zjtM6HajrFTmaOUzzn4LvxJ0yUXdGO_pJOlI)`
       );
     await message.reply({ embeds: [linkEmbed] });
   }
