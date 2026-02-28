@@ -5,6 +5,8 @@
   "helpFooter": "Licenser UYG",
   "setUserNoArgs": "⚠️ Lütfen bir isim belirtin! Kullanım: `!setuser <İsim>`",
   "setUserSuccess": "✅ Oyun içi adınız başarıyla kaydedildi: **{name}**",
-  "checkUserNoName": "⚠️ Henüz oyun içi adınızı ayarlamadınız! Lütfen `!setuser <İsim>` komutunu kullanın.",
-  "checkUserSuccess": "👤 Kayıtlı oyun içi adınız: **{name}**"
+  "checkUserNoName": "⚠️ Henüz oyun içi adınızı ayarlamadınız! Lütfen önce `!setuser <İsim>` komutunu kullanın.",
+  "checkUserSuccess": "👤 Kayıtlı oyun içi adınız: **{name}**",
+  "balanceMsg": "💸 **{name}'s Balance**\nYou have {balance} <:emoji_28:1382326426392330251>",
+  "worldMsg": "🌍 Mevcut depo dünyası: **krak{num}**"
 }
