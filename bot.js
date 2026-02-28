@@ -27,7 +27,8 @@ const userData = new Map();
 
 function getUserProfile(userId) {
   if (!userData.has(userId)) {
-    userData.set(userId, { lang: null, inGameName: null });
+    // balance: 0 değişkeni eklendi
+    userData.set(userId, { lang: null, inGameName: null, balance: 0 });
   }
   return userData.get(userId);
 }
@@ -115,6 +116,27 @@ client.on('messageCreate', async (message) => {
     if (!profile.inGameName) return message.reply(langData.checkUserNoName);
     await message.reply(langData.checkUserSuccess.replace('{name}', profile.inGameName));
   }
+
+  // !world
+  if (command === 'world') {
+    // 0 ile 100 arasında rastgele sayı üretir
+    const randomNum = Math.floor(Math.random() * 101);
+    await message.reply(langData.worldMsg.replace('{num}', randomNum));
+  }
+
+  // !balance
+  if (command === 'balance') {
+    // setuser kontrolü
+    if (!profile.inGameName) return message.reply(langData.checkUserNoName);
+    
+    // Değerleri dil dosyasından alıp isim ve bakiyeyi yerleştiriyoruz
+    const balanceText = langData.balanceMsg
+      .replace('{name}', profile.inGameName)
+      .replace('{balance}', profile.balance);
+      
+    await message.reply(balanceText);
+  }
 });
 
 client.login(config.token);
+      
