@@ -27,7 +27,6 @@ const userData = new Map();
 
 function getUserProfile(userId) {
   if (!userData.has(userId)) {
-    // balance: 0 değişkeni eklendi
     userData.set(userId, { lang: null, inGameName: null, balance: 0 });
   }
   return userData.get(userId);
@@ -70,8 +69,8 @@ client.on('messageCreate', async (message) => {
   // Dil seçimi kontrolü
   if (!profile.lang) {
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('lang_tr').setLabel('Türkçe').setStyle(ButtonStyle.Danger).setEmoji('🇹🇷'),
-      new ButtonBuilder().setCustomId('lang_en').setLabel('English').setStyle(ButtonStyle.Primary).setEmoji('🇬🇧')
+      new ButtonBuilder().setCustomId('lang_tr').setLabel('Türkçe').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('lang_en').setLabel('English').setStyle(ButtonStyle.Primary)
     );
     return message.reply({ content: 'Lütfen dil seçin / Please select language', components: [row] });
   }
@@ -90,7 +89,7 @@ client.on('messageCreate', async (message) => {
     await message.reply({ embeds: [embed] });
   }
 
-  // !link (Sadece İngilizce ve Özel Emoji)
+  // !link 
   if (command === 'link') {
     const linkEmbed = new EmbedBuilder()
       .setTitle('<:nuronskrak:1381655242927767562> Download Link')
@@ -103,40 +102,57 @@ client.on('messageCreate', async (message) => {
     await message.reply({ embeds: [linkEmbed] });
   }
 
-  // !setuser
+  // !setuser (Siyah Embed)
   if (command === 'setuser') {
     const name = args.join(' ');
     if (!name) return message.reply(langData.setUserNoArgs);
     profile.inGameName = name;
-    await message.reply(langData.setUserSuccess.replace('{name}', name));
+    
+    const embed = new EmbedBuilder()
+      .setTitle('OGPS Information')
+      .setColor('#000000') // Siyah
+      .setDescription(`➤ Successfully **updated** **your** **ogps name** to **${name}**`);
+      
+    await message.reply({ embeds: [embed] });
   }
 
-  // !checkuser
+  // !checkuser (Siyah Embed)
   if (command === 'checkuser') {
     if (!profile.inGameName) return message.reply(langData.checkUserNoName);
-    await message.reply(langData.checkUserSuccess.replace('{name}', profile.inGameName));
+    
+    const embed = new EmbedBuilder()
+      .setColor('#000000') // Siyah
+      .setDescription(`➤ Your current username is **${profile.inGameName}**!`);
+      
+    await message.reply({ embeds: [embed] });
   }
 
-  // !world
+  // !world (Siyah Embed)
   if (command === 'world') {
-    // 0 ile 100 arasında rastgele sayı üretir
-    const randomNum = Math.floor(Math.random() * 101);
-    await message.reply(langData.worldMsg.replace('{num}', randomNum));
+    if (!profile.inGameName) return message.reply(langData.checkUserNoName); // OGPS isminin yazılabilmesi için kayıtlı olması lazım
+    
+    const randomNum = Math.floor(Math.random() * 101); // 0-100 arası rastgele sayı
+    
+    const embed = new EmbedBuilder()
+      .setTitle('Global Deposit World')
+      .setColor('#000000') // Siyah
+      .setDescription(`➤ Current Deposit World is **krak${randomNum}**!\n➤ Your OGPS name is **${profile.inGameName}**!`);
+      
+    await message.reply({ embeds: [embed] });
   }
 
-  // !balance
+  // !balance (Kırmızı Embed)
   if (command === 'balance') {
-    // setuser kontrolü
     if (!profile.inGameName) return message.reply(langData.checkUserNoName);
     
-    // Değerleri dil dosyasından alıp isim ve bakiyeyi yerleştiriyoruz
-    const balanceText = langData.balanceMsg
-      .replace('{name}', profile.inGameName)
-      .replace('{balance}', profile.balance);
+    const embed = new EmbedBuilder()
+      .setTitle(`${profile.inGameName}'s Balance`)
+      .setColor('#FF0000') // Kırmızı
+      .setDescription(`➤ You have ${profile.balance} <:emoji_28:1382326426392330251>`);
       
-    await message.reply(balanceText);
+    await message.reply({ embeds: [embed] });
   }
 });
 
 client.login(config.token);
-      
+  
