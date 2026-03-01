@@ -175,7 +175,7 @@ module.exports = {
                 name: `ticket-${ticketNum}`,
                 type: ChannelType.GuildText,
                 parent: guildDb.parentId ?? null,
-                permissionOverwrites
+                permissionOverwrites: permOverwrites
             });
 
             // ── EMBED ──────────────────────────────────────────────────────────
