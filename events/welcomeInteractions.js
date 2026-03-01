@@ -1,7 +1,7 @@
 const { 
     Events, 
     ActionRowBuilder, 
-    StringSelectMenuBuilder, 
+    RoleSelectMenuBuilder, 
     ChannelSelectMenuBuilder, 
     ModalBuilder, 
     TextInputBuilder, 
@@ -12,6 +12,7 @@ const fs = require('fs');
 
 const dbPath = './db.json';
 
+// DB Kayıt Fonksiyonu
 function saveToDB(guildId, key, value) {
     let db = {};
     if (fs.existsSync(dbPath)) db = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
@@ -23,68 +24,73 @@ function saveToDB(guildId, key, value) {
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
-        if (interaction.isButton()) {
-            if (interaction.customId === 'welcome_channel_btn') {
-                const channelMenu = new ActionRowBuilder().addComponents(
-                    new ChannelSelectMenuBuilder()
-                        .setCustomId('welcome_channel_select')
-                        .setPlaceholder('Select the welcome channel...')
-                        .addChannelTypes(ChannelType.GuildText)
-                );
-                return interaction.reply({ content: '📢 **Select a channel:**', components: [channelMenu], ephemeral: true });
+        try {
+            if (interaction.isButton()) {
+                // Kanal Seçme Butonu
+                if (interaction.customId === 'welcome_channel_btn') {
+                    const channelMenu = new ActionRowBuilder().addComponents(
+                        new ChannelSelectMenuBuilder()
+                            .setCustomId('welcome_channel_select')
+                            .setPlaceholder('Select the welcome channel...')
+                            .addChannelTypes(ChannelType.GuildText)
+                    );
+                    return await interaction.reply({ content: '📢 **Select a channel:**', components: [channelMenu], ephemeral: true });
+                }
+
+                // Rol Seçme Butonu (ARAMA ÇUBUĞU EKLENDİ)
+                if (interaction.customId === 'welcome_role_btn') {
+                    const roleMenu = new ActionRowBuilder().addComponents(
+                        new RoleSelectMenuBuilder()
+                            .setCustomId('welcome_role_select')
+                            .setPlaceholder('🔎 Search and select the member role...')
+                    );
+                    return await interaction.reply({ content: '👤 **Select the member role:**', components: [roleMenu], ephemeral: true });
+                }
+
+                // GIF/Görsel Ayarlama Butonu
+                if (interaction.customId === 'welcome_gif_btn') {
+                    const modal = new ModalBuilder().setCustomId('welcome_gif_modal').setTitle('Welcome GIF Settings');
+                    const gifInput = new TextInputBuilder()
+                        .setCustomId('gif_url_input')
+                        .setLabel("Paste the GIF URL (Discord, Imgur vb.)")
+                        .setStyle(TextInputStyle.Short)
+                        .setPlaceholder('https://cdn.discordapp.com/attachments/...')
+                        .setRequired(true);
+                        
+                    modal.addComponents(new ActionRowBuilder().addComponents(gifInput));
+                    return await interaction.showModal(modal);
+                }
             }
 
-            if (interaction.customId === 'welcome_role_btn') {
-                // Rolleri al ve "Members" olanı bulup en başa koy
-                const allRoles = interaction.guild.roles.cache
-                    .filter(r => r.name !== '@everyone' && !r.managed)
-                    .map(r => ({ label: r.name, value: r.id }));
-
-                // "Members" içeren rolü bul ve sırala
-                const sortedOptions = allRoles.sort((a, b) => {
-                    if (a.label.includes('Members')) return -1;
-                    if (b.label.includes('Members')) return 1;
-                    return 0;
-                }).slice(0, 25); // Discord sınırı 25 opsiyon
-
-                const roleMenu = new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId('welcome_role_select')
-                        .setPlaceholder('Select the auto-role (Members is at the top)...')
-                        .addOptions(sortedOptions)
-                );
-                return interaction.reply({ content: '👤 **Select the member role:**', components: [roleMenu], ephemeral: true });
+            // Menü Seçimleri Kaydetme
+            if (interaction.isAnySelectMenu()) {
+                const guildId = interaction.guild.id;
+                
+                if (interaction.customId === 'welcome_channel_select') {
+                    saveToDB(guildId, 'welcomeChannel', interaction.values[0]);
+                    return await interaction.update({ content: `✅ Welcome channel saved successfully!`, components: [] });
+                }
+                
+                if (interaction.customId === 'welcome_role_select') {
+                    // RoleSelectMenu direkt olarak rolün ID'sini döndürür
+                    saveToDB(guildId, 'autoRole', interaction.values[0]);
+                    return await interaction.update({ content: `✅ Auto-role saved successfully!`, components: [] });
+                }
             }
 
-            if (interaction.customId === 'welcome_gif_btn') {
-                const modal = new ModalBuilder().setCustomId('welcome_gif_modal').setTitle('Welcome GIF Settings');
-                const gifInput = new TextInputBuilder()
-                    .setCustomId('gif_url_input')
-                    .setLabel("Paste the GIF URL")
-                    .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('https://cdn.discordapp.com/...')
-                    .setRequired(true);
-                modal.addComponents(new ActionRowBuilder().addComponents(gifInput));
-                return interaction.showModal(modal);
+            // Modal (GIF) Kaydetme
+            if (interaction.isModalSubmit() && interaction.customId === 'welcome_gif_modal') {
+                const gifUrl = interaction.fields.getTextInputValue('gif_url_input');
+                saveToDB(interaction.guild.id, 'welcomeGif', gifUrl);
+                return await interaction.reply({ content: `✅ Welcome GIF updated!`, ephemeral: true });
             }
-        }
-
-        if (interaction.isAnySelectMenu()) {
-            const guildId = interaction.guild.id;
-            if (interaction.customId === 'welcome_channel_select') {
-                saveToDB(guildId, 'welcomeChannel', interaction.values[0]);
-                return interaction.update({ content: `✅ Welcome channel saved!`, components: [] });
+            
+        } catch (error) {
+            console.error('[Welcome Interactions Error]', error);
+            // Çökmeleri önlemek ve 10062 hatasını yakalamak için
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({ content: '❌ İşlem sırasında bir hata oluştu.', ephemeral: true }).catch(() => {});
             }
-            if (interaction.customId === 'welcome_role_select') {
-                saveToDB(guildId, 'autoRole', interaction.values[0]);
-                return interaction.update({ content: `✅ Auto-role saved!`, components: [] });
-            }
-        }
-
-        if (interaction.isModalSubmit() && interaction.customId === 'welcome_gif_modal') {
-            const gifUrl = interaction.fields.getTextInputValue('gif_url_input');
-            saveToDB(interaction.guild.id, 'welcomeGif', gifUrl);
-            return interaction.reply({ content: `✅ Welcome GIF updated!`, ephemeral: true });
         }
     }
 };
