@@ -15,10 +15,13 @@ module.exports = {
     },
     async execute(interaction) {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return interaction.reply({ content: '❌ You need Administrator permission to use this command.', ephemeral: true });
+            return interaction.reply({
+                content: '❌ You need Administrator permission to use this command.',
+                ephemeral: true
+            });
         }
 
-        const db           = JSON.parse(fs.readFileSync('./db.json', 'utf-8'));
+        const db            = JSON.parse(fs.readFileSync('./db.json', 'utf-8'));
         const guildSettings = db[interaction.guild.id];
 
         if (!guildSettings || !guildSettings.logChannel || !guildSettings.staffRole) {
@@ -54,21 +57,41 @@ module.exports = {
                 .setCustomId('ticket_product_select')
                 .setPlaceholder('📦  Select the product you need help with...')
                 .addOptions([
-                    { label: 'OGPS Bot',          value: 'ogps_bot',  emoji: '🤖', description: 'Support for OGPS Bot' },
-                    { label: "Nuron's Krak DLL",  value: 'nuron_dll', emoji: '⚙️', description: "Support for Nuron's Krak DLL" },
-                    { label: 'Growtopia Bot',      value: 'gt_bot',   emoji: '🌱', description: 'Support for Growtopia Bot' }
+                    { label: 'OGPS Bot',         value: 'ogps_bot',  emoji: '🤖', description: 'Support for OGPS Bot' },
+                    { label: "Nuron's Krak DLL", value: 'nuron_dll', emoji: '⚙️', description: "Support for Nuron's Krak DLL" },
+                    { label: 'Growtopia Bot',     value: 'gt_bot',   emoji: '🌱', description: 'Support for Growtopia Bot' }
                 ])
         );
 
-        // ── CATEGORY BUTTONS ───────────────────────────────────────────────────
+        // ── CATEGORY BUTTONS — custom server emojis ────────────────────────────
         const buttonsRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('ticket_cat_genel').setLabel('General').setStyle(ButtonStyle.Secondary).setEmoji('💬'),
-            new ButtonBuilder().setCustomId('ticket_cat_teknik').setLabel('Technical').setStyle(ButtonStyle.Secondary).setEmoji('🔧'),
-            new ButtonBuilder().setCustomId('ticket_cat_reklam').setLabel('Advertisement').setStyle(ButtonStyle.Secondary).setEmoji('📢'),
-            new ButtonBuilder().setCustomId('ticket_cat_ozel').setLabel('Special').setStyle(ButtonStyle.Secondary).setEmoji('⭐')
+            new ButtonBuilder()
+                .setCustomId('ticket_cat_genel')
+                .setLabel('General')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji({ id: '1381662734562627614', name: 'emoji_10' }),
+
+            new ButtonBuilder()
+                .setCustomId('ticket_cat_teknik')
+                .setLabel('Technical')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji({ id: '1381662800039907408', name: 'emoji_12' }),
+
+            new ButtonBuilder()
+                .setCustomId('ticket_cat_reklam')
+                .setLabel('Advertisement')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji({ id: '1381662917904039986', name: 'emoji_16' }),
+
+            new ButtonBuilder()
+                .setCustomId('ticket_cat_ozel')
+                .setLabel('Special')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji({ id: '1381662978549743656', name: 'emoji_18' })
         );
 
         await interaction.channel.send({ embeds: [embed], components: [menuRow, buttonsRow] });
         await interaction.reply({ content: '✅ Ticket panel has been set up successfully!', ephemeral: true });
     }
 };
+        
