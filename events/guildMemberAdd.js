@@ -33,16 +33,15 @@ module.exports = {
                 `<:emoji_20:1381700870831472801> **Member Count:** ${member.guild.memberCount}\n` +
                 `<:emoji_16:1381662917904039986> **Server:** ${member.guild.name}`;
 
-            const options = { content: welcomeText };
+            const embed = new EmbedBuilder()
+                .setColor('#FF0000')
+                .setDescription(welcomeText);
 
             if (settings.welcomeGif) {
-                const embed = new EmbedBuilder()
-                    .setColor('#2b2d31')
-                    .setImage(settings.welcomeGif);
-                options.embeds = [embed];
+                embed.setImage(settings.welcomeGif);
             }
 
-            channel.send(options).catch(console.error);
+            channel.send({ embeds: [embed] }).catch(console.error);
         }
     }
 };
