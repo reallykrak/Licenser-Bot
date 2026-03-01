@@ -1,247 +1,206 @@
-const { ChannelType, PermissionsBitField, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelSelectMenuBuilder, RoleSelectMenuBuilder, UserSelectMenuBuilder } = require('discord.js');
+const { 
+    ChannelType, PermissionsBitField, EmbedBuilder, ActionRowBuilder, 
+    ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, 
+    TextInputStyle, StringSelectMenuBuilder, ChannelSelectMenuBuilder, 
+    RoleSelectMenuBuilder, UserSelectMenuBuilder 
+} = require('discord.js');
 const fs = require('fs');
 const discordTranscripts = require('discord-html-transcripts');
 
-// Kullanıcıların menüden hangi ürünü seçtiğini geçici hafızada tutuyoruz
-const userProductSelections = new Map();
-
 module.exports = {
-  name: 'interactionCreate',
-  async execute(interaction, client) {
-    let db = JSON.parse(fs.readFileSync('./db.json', 'utf-8'));
-    if (!db[interaction.guild.id]) db[interaction.guild.id] = { ticketCount: 0 };
-    let guildDb = db[interaction.guild.id];
+    name: 'interactionCreate',
+    async execute(interaction, client) {
+        let db = JSON.parse(fs.readFileSync('./db.json', 'utf-8'));
+        if (!db[interaction.guild.id]) db[interaction.guild.id] = { ticketCount: 0 };
+        let guildDb = db[interaction.guild.id];
 
-    // --- SLASH KOMUTLARI YÜRÜTME ---
-    if (interaction.isChatInputCommand()) {
-      const command = client.commands.get(interaction.commandName);
-      if (!command) return;
-      try { await command.execute(interaction); } 
-      catch (error) { console.error(error); await interaction.reply({ content: 'Komut çalıştırılırken hata oluştu!', ephemeral: true }); }
-      return;
-    }
-
-    // --- TICKET AYARLARI BUTONLARI ---
-    if (interaction.isButton()) {
-      if (interaction.customId === 'settings_log') {
-        const row = new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId('set_log_channel').setChannelTypes(ChannelType.GuildText));
-        return interaction.reply({ content: 'Lütfen log kanalını seçin:', components: [row], ephemeral: true });
-      }
-      if (interaction.customId === 'settings_role') {
-        const row = new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId('set_staff_role'));
-        return interaction.reply({ content: 'Lütfen ticket yetkilisi rolünü seçin:', components: [row], ephemeral: true });
-      }
-      if (interaction.customId === 'settings_gif') {
-        const modal = new ModalBuilder().setCustomId('set_gif_modal').setTitle('GIF Ayarla');
-        const gifInput = new TextInputBuilder().setCustomId('gif_url').setLabel('GIF Linki').setStyle(TextInputStyle.Short).setRequired(true);
-        modal.addComponents(new ActionRowBuilder().addComponents(gifInput));
-        return interaction.showModal(modal);
-      }
-    }
-
-    // --- AYAR KAYDETME (Menüler ve Modallar) ---
-    if (interaction.isAnySelectMenu()) {
-      if (interaction.customId === 'set_log_channel') {
-        guildDb.logChannel = interaction.values[0];
-        fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
-        return interaction.reply({ content: `✅ Log kanalı ayarlandı: <#${guildDb.logChannel}>`, ephemeral: true });
-      }
-      if (interaction.customId === 'set_staff_role') {
-        guildDb.staffRole = interaction.values[0];
-        fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
-        return interaction.reply({ content: `✅ Yetkili rolü ayarlandı: <@&${guildDb.staffRole}>`, ephemeral: true });
-      }
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId === 'set_gif_modal') {
-      guildDb.gifUrl = interaction.fields.getTextInputValue('gif_url');
-      fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
-      return interaction.reply({ content: '✅ Panel GIF resmi başarıyla güncellendi.', ephemeral: true });
-    }
-
-    // --- TICKET PANELİ: ÜRÜN SEÇİMİ ---
-    if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_product_select') {
-      userProductSelections.set(interaction.user.id, interaction.values[0]);
-      return interaction.reply({ content: 'Ürün seçildi! Şimdi lütfen aşağıdaki butonlardan (Genel, Teknik vb.) kategoriyi seçerek talebinizi oluşturun.', ephemeral: true });
-    }
-
-    // --- TICKET OLUŞTURMA (Genel, Teknik vs. Butonları) ---
-    if (interaction.isButton() && interaction.customId.startsWith('ticket_cat_')) {
-      if (!userProductSelections.has(interaction.user.id)) {
-        return interaction.reply({ content: '⚠️ Lütfen önce üstteki menüden bir ürün seçiniz!', ephemeral: true });
-      }
-
-      const categoryMap = { 'genel': 'Genel', 'teknik': 'Teknik', 'reklam': 'Reklam', 'ozel': 'Özel' };
-      const selectedCat = categoryMap[interaction.customId.split('_')[2]];
-      
-      guildDb.ticketCount = (guildDb.ticketCount || 0) + 1;
-      fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
-
-      await interaction.deferReply({ ephemeral: true });
-
-      const ticketChannel = await interaction.guild.channels.create({
-        name: `destek-${interaction.user.username}`,
-        type: ChannelType.GuildText,
-        permissionOverwrites: [
-          { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-          { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
-          { id: guildDb.staffRole, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
-        ]
-      });
-
-      const ticketEmbed = new EmbedBuilder()
-        .setAuthor({ name: "Nuron's Krak", iconURL: interaction.guild.iconURL() })
-        .setTitle('Destek Sistemi')
-        .setDescription('**Dikkat:** Çalışma saatleri dışındaysanız, temsilcilerimiz mesai başlangıcında size geri dönüş yapacaktır.\nLütfen sorununuzu detaylıca açıklayınız.')
-        .addFields(
-          { name: '👤 Kullanıcı', value: `${interaction.user}`, inline: true },
-          { name: '📂 Kategori', value: selectedCat, inline: true },
-          { name: '🎫 Talep No', value: `#${guildDb.ticketCount}`, inline: true },
-          { name: '⏱️ Açılış', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true }
-        )
-        .setColor('#2b2d31');
-
-      // Üst Yönetim Menüsü
-      const controlMenu = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId('ticket_controls').setPlaceholder('⚙️ Bilet İşlemleri (Tıkla)').addOptions([
-          { label: 'Talebi Kapat', value: 'close', emoji: '⛔' },
-          { label: 'Talebi Kilitle', value: 'lock', emoji: '🔒' },
-          { label: 'Talebin Kilidini Aç', value: 'unlock', emoji: '🔓' },
-          { label: 'Kullanıcıya DM Gönder', value: 'dm_user', emoji: '✉️' }
-        ])
-      );
-
-      // Alt Butonlar
-      const actionButtonsRow1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('t_claim').setLabel('Devral').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('t_transfer').setLabel('Devret').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('t_priority').setLabel('Öncelik').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('t_archive').setLabel('Arşivle').setStyle(ButtonStyle.Secondary)
-      );
-      const actionButtonsRow2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('t_save').setLabel('Kaydet').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('t_add').setLabel('Ekle').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('t_remove').setLabel('Çıkar').setStyle(ButtonStyle.Danger)
-      );
-
-      await ticketChannel.send({ 
-        content: `${interaction.user} | <@&${guildDb.staffRole}>`, 
-        embeds: [ticketEmbed], 
-        components: [controlMenu, actionButtonsRow1, actionButtonsRow2] 
-      });
-
-      userProductSelections.delete(interaction.user.id); // Hafızayı temizle
-      return interaction.editReply({ content: `✅ Talebiniz oluşturuldu: ${ticketChannel}` });
-    }
-
-    // --- TICKET İÇİ KONTROLLER ---
-    // 1. Menü İşlemleri
-    if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_controls') {
-      const action = interaction.values[0];
-      const hasStaffRole = interaction.member.roles.cache.has(guildDb.staffRole) || interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
-      if (!hasStaffRole) return interaction.reply({ content: 'Bunu sadece yetkililer kullanabilir!', ephemeral: true });
-
-      if (action === 'close') {
-        await interaction.reply('Bilet kapatılıyor, kullanıcıya puanlama gönderilecek...');
-        
-        // Log ve Puanlama işlemi
-        const userInTicket = interaction.channel.name.split('-')[1]; // Kullanıcı adını al
-        const member = interaction.guild.members.cache.find(m => m.user.username.toLowerCase() === userInTicket.toLowerCase());
-        
-        if (member) {
-          const rateRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`rate_1_${interaction.channel.name}`).setLabel('1 ⭐').setStyle(ButtonStyle.Danger),
-            new ButtonBuilder().setCustomId(`rate_2_${interaction.channel.name}`).setLabel('2 ⭐').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId(`rate_3_${interaction.channel.name}`).setLabel('3 ⭐').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId(`rate_4_${interaction.channel.name}`).setLabel('4 ⭐').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId(`rate_5_${interaction.channel.name}`).setLabel('5 ⭐').setStyle(ButtonStyle.Success)
-          );
-          try {
-            await member.send({ content: `Merhaba! ${interaction.guild.name} sunucusundaki destek talebiniz kapatıldı. Hizmetimizi nasıl değerlendirirsiniz?`, components: [rateRow] });
-          } catch(e) { console.log('Kullanıcı DM kapalı.'); }
+        // --- SLASH KOMUTLARI ---
+        if (interaction.isChatInputCommand()) {
+            const command = client.commands.get(interaction.commandName);
+            if (!command) return;
+            try { await command.execute(interaction); } catch (e) { console.error(e); }
+            return;
         }
 
-        setTimeout(() => interaction.channel.delete(), 5000);
-      }
-      if (action === 'lock') {
-        await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: false });
-        await interaction.reply('🔒 Bilet kilitlendi, kullanıcılar artık mesaj yazamaz.');
-      }
-      if (action === 'unlock') {
-        await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: null });
-        await interaction.reply('🔓 Bilet kilidi açıldı.');
-      }
-      if (action === 'dm_user') {
-        return interaction.reply({ content: 'Sistemsel: Bu özellik için kullanıcıya direkt mesaj atmayı bir Modal ile ekleyebilirsiniz. (Şu an taslak)', ephemeral: true });
-      }
-    }
-
-    // 2. Ticket Buton İşlemleri (Kaydet, Ekle, Çıkar vs)
-    if (interaction.isButton()) {
-      const hasStaffRole = interaction.member.roles.cache.has(guildDb.staffRole) || interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
-
-      if (interaction.customId === 't_save') {
-        if (!hasStaffRole) return interaction.reply({ content: 'Yetkiniz yok!', ephemeral: true });
-        await interaction.deferReply();
-        const attachment = await discordTranscripts.createTranscript(interaction.channel, { filename: `${interaction.channel.name}-transcript.html` });
-        
-        // DM At ve Loga gönder
-        try { await interaction.user.send({ content: 'İstediğiniz bilet dökümü:', files: [attachment] }); } catch(e) {}
-        if (guildDb.logChannel) {
-          const logChan = interaction.guild.channels.cache.get(guildDb.logChannel);
-          if (logChan) await logChan.send({ content: `📝 ${interaction.channel.name} kaydedildi. İşlemi yapan: ${interaction.user}`, files: [attachment] });
+        // --- AYAR BUTONLARI VE MENÜLERİ ---
+        if (interaction.isButton()) {
+            if (interaction.customId === 'settings_log') {
+                const row = new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId('set_log_chan').setChannelTypes(ChannelType.GuildText));
+                return interaction.reply({ content: 'Log kanalı seçin:', components: [row], ephemeral: true });
+            }
+            if (interaction.customId === 'settings_role') {
+                const row = new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId('set_staff_role'));
+                return interaction.reply({ content: 'Yetkili rolü seçin:', components: [row], ephemeral: true });
+            }
+            if (interaction.customId === 'settings_category') {
+                const row = new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId('set_parent_cat').setChannelTypes(ChannelType.GuildCategory));
+                return interaction.reply({ content: 'Biletlerin açılacağı kategoriyi seçin:', components: [row], ephemeral: true });
+            }
+            if (interaction.customId === 'settings_gif') {
+                const modal = new ModalBuilder().setCustomId('gif_modal').setTitle('GIF Linki Girin');
+                const input = new TextInputBuilder().setCustomId('gif_input').setLabel('URL (discordapp/imgur vb.)').setStyle(TextInputStyle.Short).setRequired(true);
+                modal.addComponents(new ActionRowBuilder().addComponents(input));
+                return interaction.showModal(modal);
+            }
         }
-        await interaction.editReply('✅ Bilet başarıyla kaydedildi, döküm DM kutunuza ve Log kanalına gönderildi.');
-      }
 
-      if (interaction.customId === 't_add') {
-        if (!hasStaffRole) return interaction.reply({ content: 'Yetkiniz yok!', ephemeral: true });
-        const row = new ActionRowBuilder().addComponents(new UserSelectMenuBuilder().setCustomId('ticket_add_user'));
-        return interaction.reply({ content: 'Lütfen bilete eklemek istediğiniz kullanıcıyı seçin:', components: [row], ephemeral: true });
-      }
+        // --- AYARLARI KAYDETME ---
+        if (interaction.isAnySelectMenu()) {
+            if (interaction.customId === 'set_log_chan') guildDb.logChannel = interaction.values[0];
+            if (interaction.customId === 'set_staff_role') guildDb.staffRole = interaction.values[0];
+            if (interaction.customId === 'set_parent_cat') guildDb.parentId = interaction.values[0];
+            fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
+            if (['set_log_chan', 'set_staff_role', 'set_parent_cat'].includes(interaction.customId)) {
+                return interaction.reply({ content: '✅ Ayar başarıyla kaydedildi.', ephemeral: true });
+            }
+        }
+        if (interaction.isModalSubmit() && interaction.customId === 'gif_modal') {
+            guildDb.gifUrl = interaction.fields.getTextInputValue('gif_input');
+            fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
+            return interaction.reply({ content: '✅ GIF/Resim başarıyla ayarlandı.', ephemeral: true });
+        }
 
-      if (interaction.customId === 't_remove') {
-        if (!hasStaffRole) return interaction.reply({ content: 'Yetkiniz yok!', ephemeral: true });
-        // Sadece bottan ve yetkiliden farklı kişileri listede göster
-        const membersInChannel = interaction.channel.members.filter(m => !m.user.bot && !m.roles.cache.has(guildDb.staffRole));
-        if (membersInChannel.size === 0) return interaction.reply({ content: 'Çıkarılacak kullanıcı bulunamadı.', ephemeral: true });
+        // --- TICKET OLUŞTURMA SİSTEMİ ---
+        if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_product_select') {
+            // Seçimi geçici olarak db'ye yazalım (veya map kullanabilirsin)
+            guildDb[`last_select_${interaction.user.id}`] = interaction.values[0];
+            fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
+            return interaction.reply({ content: '✅ Ürün seçildi! Şimdi aşağıdaki butonlardan bir kategori seçin.', ephemeral: true });
+        }
 
-        const row = new ActionRowBuilder();
-        membersInChannel.forEach(m => {
-          row.addComponents(new ButtonBuilder().setCustomId(`kickuser_${m.id}`).setLabel(m.user.username).setStyle(ButtonStyle.Danger));
-        });
-        return interaction.reply({ content: 'Biletten çıkarmak istediğiniz kişiye tıklayın:', components: [row], ephemeral: true });
-      }
-      
-      // Kullanıcı çıkartma tıklaması
-      if (interaction.customId.startsWith('kickuser_')) {
-        const userId = interaction.customId.split('_')[1];
-        await interaction.channel.permissionOverwrites.delete(userId);
-        await interaction.update({ content: `<@${userId}> biletten çıkarıldı.`, components: [] });
-      }
+        if (interaction.isButton() && interaction.customId.startsWith('ticket_cat_')) {
+            const product = guildDb[`last_select_${interaction.user.id}`];
+            if (!product) return interaction.reply({ content: '⚠️ Lütfen önce listeden bir ürün seçin!', ephemeral: true });
+            
+            const catName = interaction.customId.split('_')[2].toUpperCase();
+            guildDb.ticketCount++;
+            fs.writeFileSync('./db.json', JSON.stringify(db, null, 2));
 
-      // PUANLAMA LOG SİSTEMİ (Kullanıcının DM'de bastığı butonlar)
-      if (interaction.customId.startsWith('rate_')) {
-        const parts = interaction.customId.split('_');
-        const star = parts[1];
-        const ticketName = parts[2];
-        
-        await interaction.update({ content: `Geri bildiriminiz için teşekkürler! Puanınız: ${star} ⭐`, components: [] });
-        
-        // Log Kanalına at
-        const dbNow = JSON.parse(fs.readFileSync('./db.json', 'utf-8'));
-        // Dm eventinde guild objesi direkt gelmeyebilir, bu kısmı gelişmiş yapılandırmak gerekebilir
-        // Şu anki yapıda log kanalına ID üzerinden ulaşmaya çalışalım:
-        // Not: DM kanalında interaction.guild null olur! Bu yüzden loglama işlemini client üzerinden bulmalıyız.
-      }
+            const ticketChannel = await interaction.guild.channels.create({
+                name: `ticket-${guildDb.ticketCount}`,
+                type: ChannelType.GuildText,
+                parent: guildDb.parentId || null,
+                permissionOverwrites: [
+                    { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+                    { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+                    { id: guildDb.staffRole, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+                ]
+            });
+
+            const ticketEmbed = new EmbedBuilder()
+                .setTitle("Nuron's Krak | Destek Sistemi")
+                .setDescription("**Dikkat:** Çalışma saatleri dışındaysanız, temsilcilerimiz mesai başlangıcında size geri dönüş yapacaktır.")
+                .setColor('#000000') // Siyah Embed
+                .addFields(
+                    { name: '👤 Kullanıcı', value: `${interaction.user}`, inline: true },
+                    { name: '📂 Kategori', value: `${catName} (${product})`, inline: true },
+                    { name: '🎫 Talep No', value: `#${guildDb.ticketCount}`, inline: true },
+                    { name: '🔒 Durum', value: `Açık`, inline: true },
+                    { name: '⏱️ Açılış', value: `<t:${Math.floor(Date.now()/1000)}:R>`, inline: true },
+                    { name: '🙋‍♂️ Sorumlu', value: `Henüz yok`, inline: true }
+                );
+
+            const rowMenu = new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder().setCustomId('t_controls').setPlaceholder('Bilet İşlemleri').addOptions([
+                    { label: 'Kapat', value: 'close', emoji: '⛔' },
+                    { label: 'Kilitle', value: 'lock', emoji: '🔒' },
+                    { label: 'Kilidi Aç', value: 'unlock', emoji: '🔓' },
+                    { label: 'DM Gönder', value: 'dm' }
+                ])
+            );
+
+            const rowBtns1 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('btn_claim').setLabel('Devral').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('btn_transfer').setLabel('Devret').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('btn_archive').setLabel('Arşivle').setStyle(ButtonStyle.Secondary)
+            );
+            
+            const rowBtns2 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('btn_save').setLabel('Kaydet').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('btn_add').setLabel('Ekle').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('btn_remove').setLabel('Çıkar').setStyle(ButtonStyle.Danger)
+            );
+
+            await ticketChannel.send({ content: `${interaction.user} Hoş geldin!`, embeds: [ticketEmbed], components: [rowMenu, rowBtns1, rowBtns2] });
+            return interaction.reply({ content: `Biletiniz açıldı: ${ticketChannel}`, ephemeral: true });
+        }
+
+        // --- BİLET İÇİ BUTON FONKSİYONLARI ---
+        const isStaff = interaction.member.roles.cache.has(guildDb.staffRole) || interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
+
+        if (interaction.isButton()) {
+            // Devral
+            if (interaction.customId === 'btn_claim') {
+                if (!isStaff) return interaction.reply({ content: 'Yetkiniz yok!', ephemeral: true });
+                const embed = EmbedBuilder.from(interaction.message.embeds[0]);
+                embed.spliceFields(5, 1, { name: '🙋‍♂️ Sorumlu', value: `${interaction.user}`, inline: true });
+                await interaction.update({ embeds: [embed] });
+                return interaction.followUp({ content: `✅ Bu bilet artık **${interaction.user.tag}** sorumluluğunda.` });
+            }
+
+            // Devret
+            if (interaction.customId === 'btn_transfer') {
+                if (!isStaff) return interaction.reply({ content: 'Yetkiniz yok!', ephemeral: true });
+                const row = new ActionRowBuilder().addComponents(new UserSelectMenuBuilder().setCustomId('transfer_user'));
+                return interaction.reply({ content: 'Bileti devretmek istediğiniz yetkiliyi seçin:', components: [row], ephemeral: true });
+            }
+
+            // Arşivle (Kanalı gizler ve ismi değiştirir)
+            if (interaction.customId === 'btn_archive') {
+                if (!isStaff) return interaction.reply({ content: 'Yetkiniz yok!', ephemeral: true });
+                await interaction.channel.setName(`arsiv-${interaction.channel.name}`);
+                await interaction.channel.permissionOverwrites.edit(interaction.guild.id, { ViewChannel: false });
+                return interaction.reply('📁 Bilet arşivlendi.');
+            }
+
+            // Puanlama Butonları (DM'den gelen)
+            if (interaction.customId.startsWith('puan_')) {
+                const [_, puan, guildId] = interaction.customId.split('_');
+                await interaction.update({ content: `Puanınız (${puan} ⭐) kaydedildi. Teşekkürler!`, components: [] });
+                
+                const logId = db[guildId]?.logChannel;
+                if (logId) {
+                    const logChan = client.channels.cache.get(logId);
+                    if (logChan) logChan.send({ content: `⭐ **Yeni Puanlama**\nKullanıcı: ${interaction.user.tag}\nPuan: ${puan}/5` });
+                }
+            }
+        }
+
+        // --- MENÜ İŞLEMLERİ (Kapat/Kilitle/DM) ---
+        if (interaction.isStringSelectMenu() && interaction.customId === 't_controls') {
+            if (!isStaff) return interaction.reply({ content: 'Yetkiniz yok!', ephemeral: true });
+            const val = interaction.values[0];
+
+            if (val === 'close') {
+                await interaction.reply('Bilet 5 saniye içinde kapatılıyor...');
+                // Puanlama Gönder
+                const ticketOwnerId = interaction.channel.permissionOverwrites.cache.find(p => p.type === 1 && p.id !== client.user.id && !interaction.guild.members.cache.get(p.id)?.roles.cache.has(guildDb.staffRole))?.id;
+                if (ticketOwnerId) {
+                    const owner = await client.users.fetch(ticketOwnerId).catch(() => null);
+                    if (owner) {
+                        const row = new ActionRowBuilder().addComponents(
+                            [1, 2, 3, 4, 5].map(i => new ButtonBuilder().setCustomId(`puan_${i}_${interaction.guild.id}`).setLabel(`${i} ⭐`).setStyle(ButtonStyle.Primary))
+                        );
+                        await owner.send({ content: `**${interaction.guild.name}** sunucusundaki desteğimizi puanlar mısınız?`, components: [row] }).catch(() => {});
+                    }
+                }
+                setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+            }
+
+            if (val === 'lock') {
+                await interaction.channel.permissionOverwrites.edit(interaction.guild.id, { SendMessages: false });
+                const embed = EmbedBuilder.from(interaction.message.embeds[0]);
+                embed.spliceFields(3, 1, { name: '🔒 Durum', value: `Kilitli`, inline: true });
+                await interaction.update({ embeds: [embed] });
+            }
+
+            if (val === 'dm') {
+                const modal = new ModalBuilder().setCustomId('dm_modal').setTitle('Kullanıcıya Mesaj Gönder');
+                const msg = new TextInputBuilder().setCustomId('dm_input').setLabel('Mesajınız').setStyle(TextInputStyle.Paragraph).setRequired(true);
+                modal.addComponents(new ActionRowBuilder().addComponents(msg));
+                return interaction.showModal(modal);
+            }
+        }
     }
-
-    // 3. Ekleme Menüsü İşlemi
-    if (interaction.isUserSelectMenu() && interaction.customId === 'ticket_add_user') {
-      const addedUserId = interaction.values[0];
-      await interaction.channel.permissionOverwrites.edit(addedUserId, { ViewChannel: true, SendMessages: true });
-      return interaction.reply({ content: `✅ <@${addedUserId}> bilete eklendi.` });
-    }
-  }
 };
-                                                                     
+              
