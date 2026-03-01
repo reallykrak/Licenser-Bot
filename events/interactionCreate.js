@@ -10,17 +10,16 @@ const fs = require('fs');
 //  DB HELPERS
 // ══════════════════════════════════════════════════════════════════════════════
 const DB_PATH = './db.json';
-function loadDb() { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); }
-function saveDb(db) { fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2)); }
+function loadDb()      { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); }
+function saveDb(db)    { fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2)); }
 
 function getTicketData(db, guildId, channelId) {
-    if (!db[guildId])                   db[guildId]          = { ticketCount: 0 };
-    if (!db[guildId].tickets)           db[guildId].tickets  = {};
+    if (!db[guildId])                    db[guildId]                   = { ticketCount: 0 };
+    if (!db[guildId].tickets)            db[guildId].tickets            = {};
     if (!db[guildId].tickets[channelId]) db[guildId].tickets[channelId] = {};
     return db[guildId].tickets[channelId];
 }
 
-// Log an action to ticket history
 function logAction(db, guildId, channelId, text) {
     const td = getTicketData(db, guildId, channelId);
     if (!td.history) td.history = [];
@@ -28,8 +27,7 @@ function logAction(db, guildId, channelId, text) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  TRANSCRIPT BUILDER
-//  Format: • username (id): message  (date)
+//  TRANSCRIPT  —  • username (id): message  (date)
 // ══════════════════════════════════════════════════════════════════════════════
 async function buildTranscript(channel) {
     const fetched = await channel.messages.fetch({ limit: 100 });
@@ -44,9 +42,7 @@ async function buildTranscript(channel) {
             const content = m.content || (m.attachments.size ? '[attachment]' : '[embed]');
             return `• ${m.author.username} (${m.author.id}): ${content}  (${date})`;
         });
-    return lines.length
-        ? lines.join('\n')
-        : '— No user messages found in this ticket —';
+    return lines.length ? lines.join('\n') : '— No user messages found in this ticket —';
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -58,11 +54,71 @@ async function findTicketMessage(channel, botId) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  BUILD TICKET CONTROL COMPONENTS
-//  archived: bool — swaps Archive ↔ Unarchive button
+//  BUILD TICKET EMBED
+//  All info in description → works perfectly on BOTH mobile and desktop
+//  Layout:
+//    👤 User · @mention           🔒 Status · 🟢 Open
+//    ──────────────────────────────────────────────────
+//    📂 Category · General        📦 Product · ogps_bot    🎫 #9
+//    ──────────────────────────────────────────────────
+//    ⏱️ Opened · X min ago        🙋 Assigned · Unassigned
+// ══════════════════════════════════════════════════════════════════════════════
+function buildTicketEmbed({ user, catLabel, product, ticketNum, status, assignedTo, openedTs }) {
+    const ts     = openedTs ?? Math.floor(Date.now() / 1000);
+    const stat   = status     ?? '🟢  Open';
+    const assign = assignedTo ?? '*Unassigned*';
+    const sep    = '`' + '─'.repeat(38) + '`';
+
+    const desc = [
+        `> **Nuron's Krak** official support ticket.`,
+        `> Please describe your issue and wait for a staff member.`,
+        `> Support is available **08:00 – 22:00** daily.`,
+        '',
+        sep,
+        `👤  **User**\n${user}`,
+        '',
+        `🔒  **Status**\n${stat}`,
+        sep,
+        `📂  **Category** — ${catLabel ?? '—'}`,
+        `📦  **Product**  — \`${product ?? '—'}\``,
+        `🎫  **Ticket**   — \`#${ticketNum}\``,
+        sep,
+        `⏱️  **Opened**   — <t:${ts}:R>`,
+        `🙋  **Assigned** — ${assign}`,
+        sep
+    ].join('\n');
+
+    return new EmbedBuilder()
+        .setColor('#2b2d31')
+        .setTitle(`🎫  Support Ticket  #${ticketNum}`)
+        .setDescription(desc)
+        .setFooter({ text: `Ticket #${ticketNum}  •  Nuron's Krak Support` })
+        .setTimestamp();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  Helper: rebuild embed description with updated fields
+// ══════════════════════════════════════════════════════════════════════════════
+function patchEmbedDesc(oldDesc, patches) {
+    // patches: { status, assignedTo }
+    let desc = oldDesc;
+
+    if (patches.status !== undefined) {
+        desc = desc.replace(/🔒  \*\*Status\*\*\n.+/,
+            `🔒  **Status**\n${patches.status}`);
+    }
+    if (patches.assignedTo !== undefined) {
+        desc = desc.replace(/🙋  \*\*Assigned\*\* — .+/,
+            `🙋  **Assigned** — ${patches.assignedTo}`);
+    }
+    return desc;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TICKET CONTROL COMPONENTS
+//  archived = true  →  Archive button becomes Unarchive
 // ══════════════════════════════════════════════════════════════════════════════
 function buildTicketComponents(archived = false) {
-    // Row 1 — Dropdown menu
     const rowMenu = new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('t_controls')
@@ -74,7 +130,6 @@ function buildTicketComponents(archived = false) {
             ])
     );
 
-    // Row 2 — Claim | Transfer | Archive/Unarchive | Call Staff
     const archiveBtn = archived
         ? new ButtonBuilder().setCustomId('btn_archive').setLabel('Unarchive').setStyle(ButtonStyle.Secondary).setEmoji('📂')
         : new ButtonBuilder().setCustomId('btn_archive').setLabel('Archive').setStyle(ButtonStyle.Secondary).setEmoji('📁');
@@ -86,7 +141,6 @@ function buildTicketComponents(archived = false) {
         new ButtonBuilder().setCustomId('btn_call_staff').setLabel('Call Staff').setStyle(ButtonStyle.Danger).setEmoji('🚨')
     );
 
-    // Row 3 — Transcript | Add | Remove | Slow Mode
     const rowBtns2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('btn_transcript').setLabel('Transcript').setStyle(ButtonStyle.Primary).setEmoji('📄'),
         new ButtonBuilder().setCustomId('btn_add').setLabel('Add').setStyle(ButtonStyle.Success).setEmoji('➕'),
@@ -94,7 +148,6 @@ function buildTicketComponents(archived = false) {
         new ButtonBuilder().setCustomId('btn_slowmode').setLabel('Slow Mode').setStyle(ButtonStyle.Secondary).setEmoji('🐢')
     );
 
-    // Row 4 — Transactions (red, full row)
     const rowBtns3 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('btn_transactions').setLabel('Transactions Log').setStyle(ButtonStyle.Danger).setEmoji('📋')
     );
@@ -103,39 +156,7 @@ function buildTicketComponents(archived = false) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  BUILD TICKET EMBED
-// ══════════════════════════════════════════════════════════════════════════════
-function buildTicketEmbed(data) {
-    const { user, catLabel, product, ticketNum, status, assignedTo } = data;
-    return new EmbedBuilder()
-        .setColor('#2b2d31')
-        .setAuthor({ name: "Nuron's Krak  •  Support System", iconURL: 'https://cdn.discordapp.com/embed/avatars/0.png' })
-        .setTitle(`🎫  Support Ticket  #${ticketNum}`)
-        .setDescription(
-            '> Nuron\'s Krak official support ticket.\n' +
-            '> Please describe your issue in detail and wait for a staff member.\n' +
-            '> **Note:** Support is available **08:00 – 22:00** daily.'
-        )
-        .addFields(
-            // Row 1
-            { name: '👤  User',       value: `${user}`,                         inline: true },
-            { name: '🔒  Status',     value: status ?? '🟢  Open',             inline: true },
-            { name: '\u200b',          value: '\u200b',                           inline: true },
-            // Row 2
-            { name: '📂  Category',   value: catLabel ?? '—',                   inline: true },
-            { name: '📦  Product',    value: product  ?? '—',                   inline: true },
-            { name: '🎫  Ticket No',  value: `\`#${ticketNum}\``,              inline: true },
-            // Row 3
-            { name: '⏱️  Opened',     value: `<t:${Math.floor(Date.now()/1000)}:R>`, inline: true },
-            { name: '🙋  Assigned',   value: assignedTo ?? '*Unassigned*',     inline: true },
-            { name: '\u200b',          value: '\u200b',                           inline: true }
-        )
-        .setFooter({ text: `Ticket #${ticketNum}  •  Nuron's Krak Support` })
-        .setTimestamp();
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  MAIN EXPORT
+//  MODULE EXPORT
 // ══════════════════════════════════════════════════════════════════════════════
 module.exports = {
     name: 'interactionCreate',
@@ -158,6 +179,36 @@ module.exports = {
 // ══════════════════════════════════════════════════════════════════════════════
 async function handleInteraction(interaction, client) {
 
+    // ──────────────────────────────────────────────────────────────────────────
+    //  DM INTERACTIONS (no guild — rating buttons from DM)
+    // ──────────────────────────────────────────────────────────────────────────
+    if (!interaction.guild) {
+        if (interaction.isButton() && interaction.customId.startsWith('puan_')) {
+            const parts   = interaction.customId.split('_');
+            const puan    = parts[1];
+            const guildId = parts[2];
+
+            await interaction.update({
+                content: `⭐ Your rating (**${puan}/5**) has been recorded. Thank you!`,
+                components: []
+            });
+
+            const db    = loadDb();
+            const logId = db[guildId]?.logChannel;
+            if (logId) {
+                const logChan = client.channels.cache.get(logId);
+                if (logChan) await logChan.send({
+                    content: `⭐ **New Rating**\nUser: \`${interaction.user.tag}\`\nRating: **${puan} / 5 ⭐**`
+                }).catch(() => {});
+            }
+        }
+        // Any other DM interaction — silently ignore
+        return;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  GUILD INTERACTIONS
+    // ──────────────────────────────────────────────────────────────────────────
     let db      = loadDb();
     if (!db[interaction.guild.id]) db[interaction.guild.id] = { ticketCount: 0 };
     let guildDb = db[interaction.guild.id];
@@ -168,16 +219,15 @@ async function handleInteraction(interaction, client) {
         : false;
     const hasAuth = isAdmin || isStaff;
 
-    // Ticket owner check (loaded later where needed)
     const ticketData = interaction.channel
         ? getTicketData(db, interaction.guild.id, interaction.channel.id)
         : null;
     const isOwner = ticketData?.ownerId === interaction.user.id;
-    const canAct  = hasAuth || isOwner;  // owner can also close, add, remove, call staff
+    const canAct  = hasAuth || isOwner;
 
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     //  SLASH COMMANDS
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isChatInputCommand()) {
         const command = client.commands.get(interaction.commandName);
         if (!command) return;
@@ -185,9 +235,9 @@ async function handleInteraction(interaction, client) {
         return;
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     //  /ticket-settings BUTTONS
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isButton()) {
         if (interaction.customId === 'settings_log') {
             const row = new ActionRowBuilder().addComponents(
@@ -208,16 +258,16 @@ async function handleInteraction(interaction, client) {
         if (interaction.customId === 'settings_gif') {
             const modal = new ModalBuilder().setCustomId('gif_modal').setTitle('Set GIF / Image URL');
             const input = new TextInputBuilder()
-                .setCustomId('gif_input').setLabel('Paste your URL here (Discord, Imgur, etc.)')
+                .setCustomId('gif_input').setLabel('Paste URL here (Discord, Imgur, etc.)')
                 .setStyle(TextInputStyle.Short).setRequired(true);
             modal.addComponents(new ActionRowBuilder().addComponents(input));
             return interaction.showModal(modal);
         }
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    //  SETTINGS — Save (SelectMenus + Modal)
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    //  SETTINGS — Save
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isAnySelectMenu()) {
         if (interaction.customId === 'set_log_chan') {
             db[interaction.guild.id].logChannel = interaction.values[0]; saveDb(db);
@@ -238,29 +288,28 @@ async function handleInteraction(interaction, client) {
         return interaction.reply({ content: '✅ GIF/Image updated.', ephemeral: true });
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     //  TICKET CREATION — Product selection
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_product_select') {
         guildDb[`last_sel_${interaction.user.id}`] = interaction.values[0]; saveDb(db);
         return interaction.reply({ content: '✅ Product selected! Now choose a category below.', ephemeral: true });
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     //  TICKET CREATION — Category button
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isButton() && interaction.customId.startsWith('ticket_cat_')) {
         const product = guildDb[`last_sel_${interaction.user.id}`];
-        if (!product) {
-            return interaction.reply({ content: '⚠️ Please select a product from the list first!', ephemeral: true });
-        }
+        if (!product) return interaction.reply({ content: '⚠️ Please select a product first!', ephemeral: true });
 
         const catKey    = interaction.customId.replace('ticket_cat_', '');
         const catLabels = { genel: 'General', teknik: 'Technical', reklam: 'Advertisement', ozel: 'Special' };
-        const catLabel  = catLabels[catKey] ?? catKey.charAt(0).toUpperCase() + catKey.slice(1);
+        const catLabel  = catLabels[catKey] ?? (catKey.charAt(0).toUpperCase() + catKey.slice(1));
 
         guildDb.ticketCount = (guildDb.ticketCount || 0) + 1;
         const ticketNum = guildDb.ticketCount;
+        const openedTs  = Math.floor(Date.now() / 1000);
 
         const permOverwrites = [
             { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
@@ -288,20 +337,20 @@ async function handleInteraction(interaction, client) {
             name: `ticket-${ticketNum}`,
             type: ChannelType.GuildText,
             parent: guildDb.parentId ?? null,
-            permissionOverwrites: permOverwrites
+            permissionOverwrites
         });
 
-        // Save ticket data to DB
         if (!guildDb.tickets) guildDb.tickets = {};
         guildDb.tickets[ticketChannel.id] = {
-            ownerId:    interaction.user.id,
-            ownerTag:   interaction.user.tag,
-            num:        ticketNum,
+            ownerId:   interaction.user.id,
+            ownerTag:  interaction.user.tag,
+            num:       ticketNum,
+            openedTs,
             catLabel,
             product,
-            archived:   false,
-            extras:     [],
-            history:    [{ text: `Ticket opened by ${interaction.user.tag}`, ts: Math.floor(Date.now() / 1000) }]
+            archived:  false,
+            extras:    [],
+            history:   [{ text: `Ticket opened by ${interaction.user.tag}`, ts: openedTs }]
         };
         saveDb(db);
 
@@ -311,7 +360,8 @@ async function handleInteraction(interaction, client) {
             product,
             ticketNum,
             status:     '🟢  Open',
-            assignedTo: '*Unassigned*'
+            assignedTo: '*Unassigned*',
+            openedTs
         });
 
         const staffMention = guildDb.staffRole ? ` <@&${guildDb.staffRole}>` : '';
@@ -324,10 +374,11 @@ async function handleInteraction(interaction, client) {
         return interaction.reply({ content: `✅ Your ticket has been opened: ${ticketChannel}`, ephemeral: true });
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     //  TICKET CONTROL BUTTONS
-    // ──────────────────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isButton()) {
+        const td = getTicketData(db, interaction.guild.id, interaction.channel.id);
 
         // ── CLAIM ─────────────────────────────────────────────────────────────
         if (interaction.customId === 'btn_claim') {
@@ -336,20 +387,24 @@ async function handleInteraction(interaction, client) {
             const ticketMsg = await findTicketMessage(interaction.channel, client.user.id);
             if (!ticketMsg) return interaction.reply({ content: '❌ Ticket message not found.', ephemeral: true });
 
+            // Patch embed description — update Assigned line
             const embed = EmbedBuilder.from(ticketMsg.embeds[0]);
-            // Field index 7 = Assigned (0=User 1=Status 2=blank 3=Category 4=Product 5=TicketNo 6=Opened 7=Assigned 8=blank)
-            embed.spliceFields(7, 1, { name: '🙋  Assigned', value: `${interaction.user}`, inline: true });
+            const newDesc = patchEmbedDesc(ticketMsg.embeds[0].description, {
+                assignedTo: `${interaction.user}`
+            });
+            embed.setDescription(newDesc);
             await ticketMsg.edit({ embeds: [embed] });
 
             logAction(db, interaction.guild.id, interaction.channel.id, `Claimed by ${interaction.user.tag}`);
             saveDb(db);
 
-            return interaction.reply({ content: `✅ **${interaction.user.tag}** has claimed this ticket.` });
+            // Ephemeral — only visible to the clicker
+            return interaction.reply({ content: `✅ You have claimed this ticket.`, ephemeral: true });
         }
 
         // ── TRANSFER ──────────────────────────────────────────────────────────
         if (interaction.customId === 'btn_transfer') {
-            if (!hasAuth) return interaction.reply({ content: '❌ You need the staff role to transfer tickets.', ephemeral: true });
+            if (!hasAuth) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
 
             const row = new ActionRowBuilder().addComponents(
                 new UserSelectMenuBuilder()
@@ -357,18 +412,20 @@ async function handleInteraction(interaction, client) {
                     .setPlaceholder('Select a staff member to transfer to')
                     .setMinValues(1).setMaxValues(1)
             );
-            return interaction.reply({ content: '🔀 Select a **staff member** to transfer this ticket to:', components: [row], ephemeral: true });
+            return interaction.reply({
+                content: '🔀 Select a **staff member** to transfer this ticket to:',
+                components: [row],
+                ephemeral: true
+            });
         }
 
-        // ── ARCHIVE / UNARCHIVE ────────────────────────────────────────────────
+        // ── ARCHIVE / UNARCHIVE ───────────────────────────────────────────────
         if (interaction.customId === 'btn_archive') {
             if (!hasAuth) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
 
-            const td = getTicketData(db, interaction.guild.id, interaction.channel.id);
             const num = td.num ?? interaction.channel.name.replace(/\D/g, '') ?? '0';
 
             if (!td.archived) {
-                // ─ Archive ─
                 await interaction.channel.setName(`arsived-ticket-${num}`);
                 await interaction.channel.permissionOverwrites.edit(interaction.guild.id, { ViewChannel: false, SendMessages: false });
                 if (td.ownerId) {
@@ -380,13 +437,13 @@ async function handleInteraction(interaction, client) {
                 logAction(db, interaction.guild.id, interaction.channel.id, `Archived by ${interaction.user.tag}`);
                 saveDb(db);
 
-                // Update the ticket message components to show "Unarchive"
+                // Switch button to Unarchive
                 const ticketMsg = await findTicketMessage(interaction.channel, client.user.id);
                 if (ticketMsg) await ticketMsg.edit({ components: buildTicketComponents(true) }).catch(() => {});
 
-                return interaction.reply({ content: `📁 Ticket archived as **arsived-ticket-${num}**.` });
+                return interaction.reply({ content: `📁 Ticket archived as **arsived-ticket-${num}**. Click **Unarchive** to restore.`, ephemeral: true });
+
             } else {
-                // ─ Unarchive ─
                 await interaction.channel.setName(`ticket-${num}`);
                 await interaction.channel.permissionOverwrites.edit(interaction.guild.id, { ViewChannel: false });
                 if (td.ownerId) {
@@ -401,12 +458,11 @@ async function handleInteraction(interaction, client) {
                 const ticketMsg = await findTicketMessage(interaction.channel, client.user.id);
                 if (ticketMsg) await ticketMsg.edit({ components: buildTicketComponents(false) }).catch(() => {});
 
-                return interaction.reply({ content: `📂 Ticket unarchived as **ticket-${num}**.` });
+                return interaction.reply({ content: `📂 Ticket restored as **ticket-${num}**.`, ephemeral: true });
             }
         }
 
-        // ── CALL STAFF ─────────────────────────────────────────────────────────
-        // Any ticket participant (owner or staff) can press this
+        // ── CALL STAFF ────────────────────────────────────────────────────────
         if (interaction.customId === 'btn_call_staff') {
             if (!canAct) return interaction.reply({ content: '❌ Only ticket participants can call staff.', ephemeral: true });
 
@@ -415,7 +471,8 @@ async function handleInteraction(interaction, client) {
                 .setTitle('🚨  Urgent Support Request')
                 .setDescription(
                     `${guildDb.staffRole ? `<@&${guildDb.staffRole}>` : '**@Staff**'}\n\n` +
-                    `**${interaction.user.tag}** has requested urgent support for this ticket.\nPlease attend as soon as possible!`
+                    `**${interaction.user.tag}** has requested urgent support for this ticket.\n` +
+                    `Please attend as soon as possible!`
                 )
                 .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true, size: 256 }))
                 .addFields(
@@ -433,20 +490,16 @@ async function handleInteraction(interaction, client) {
             return interaction.reply({ content: '✅ Staff has been notified!', ephemeral: true });
         }
 
-        // ── TRANSCRIPT ─────────────────────────────────────────────────────────
+        // ── TRANSCRIPT ────────────────────────────────────────────────────────
         if (interaction.customId === 'btn_transcript') {
             if (!hasAuth) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
             await interaction.deferReply({ ephemeral: true });
 
-            const td       = getTicketData(db, interaction.guild.id, interaction.channel.id);
             const txtLines = await buildTranscript(interaction.channel);
-
-            // Cache the transcript in DB (so the Messages button can retrieve it)
             td.cachedTranscript = txtLines;
             logAction(db, interaction.guild.id, interaction.channel.id, `Transcript saved by ${interaction.user.tag}`);
             saveDb(db);
 
-            // Header info for the embed
             const transcriptEmbed = new EmbedBuilder()
                 .setColor('#5865F2')
                 .setTitle(`📄  Transcript — Ticket #${td.num ?? '?'}`)
@@ -455,11 +508,12 @@ async function handleInteraction(interaction, client) {
                     `> 👤 **Owner:** ${td.ownerId ? `<@${td.ownerId}>` : '—'}  \`${td.ownerTag ?? '—'}\`\n` +
                     `> 📂 **Category:** ${td.catLabel ?? '—'}  •  ${td.product ?? '—'}\n` +
                     `> 🎫 **Ticket #:** \`${td.num ?? '—'}\`\n` +
-                    `> 📅 **Saved:** <t:${Math.floor(Date.now() / 1000)}:F>`
+                    `> 📅 **Saved:** <t:${Math.floor(Date.now() / 1000)}:F>\n\n` +
+                    `*Click the button below to download the full message log.*`
                 )
-                .setFooter({ text: "Click 'Messages' to download the full transcript" });
+                .setFooter({ text: 'Nuron\'s Krak Support  •  Transcript' })
+                .setTimestamp();
 
-            // "Messages" button to download the txt
             const msgBtn = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`transcript_msgs_${interaction.channel.id}`)
@@ -468,52 +522,43 @@ async function handleInteraction(interaction, client) {
                     .setEmoji('💬')
             );
 
-            // Send to log channel
             if (guildDb.logChannel) {
                 const logChan = interaction.guild.channels.cache.get(guildDb.logChannel);
                 if (logChan) await logChan.send({ embeds: [transcriptEmbed], components: [msgBtn] }).catch(() => {});
             }
 
-            // Send to ticket owner's DM
             if (td.ownerId) {
                 const owner = await client.users.fetch(td.ownerId).catch(() => null);
-                if (owner) {
-                    await owner.send({ embeds: [transcriptEmbed], components: [msgBtn] }).catch(() => {});
-                }
+                if (owner) await owner.send({ embeds: [transcriptEmbed], components: [msgBtn] }).catch(() => {});
             }
 
             return interaction.editReply({ content: '✅ Transcript sent to the log channel and the ticket owner\'s DMs.' });
         }
 
-        // ── TRANSCRIPT — Messages button ───────────────────────────────────────
-        // This can come from DM or log channel
+        // ── TRANSCRIPT: Messages button (can come from DM too — handled above)
+        // This handles it when clicked inside guild (log channel)
         if (interaction.customId.startsWith('transcript_msgs_')) {
             const channelId = interaction.customId.replace('transcript_msgs_', '');
-            // Re-load DB (might be called from DM)
-            const freshDb = loadDb();
-            const gId     = Object.keys(freshDb).find(gid =>
-                freshDb[gid]?.tickets?.[channelId]
-            );
-            const td = gId ? freshDb[gId]?.tickets?.[channelId] : null;
+            const freshDb   = loadDb();
+            const gId       = Object.keys(freshDb).find(gid => freshDb[gid]?.tickets?.[channelId]);
+            const td2       = gId ? freshDb[gId]?.tickets?.[channelId] : null;
 
-            if (!td?.cachedTranscript) {
-                return interaction.reply({ content: '❌ Transcript data not found. Please regenerate it from the ticket.', ephemeral: true });
+            if (!td2?.cachedTranscript) {
+                return interaction.reply({ content: '❌ Transcript not found. Please regenerate it from the ticket.', ephemeral: true });
             }
 
-            const fileName = `transcript-ticket-${td.num ?? channelId}.txt`;
-            fs.writeFileSync(fileName, td.cachedTranscript, 'utf-8');
-
+            const fileName = `transcript-ticket-${td2.num ?? channelId}.txt`;
+            fs.writeFileSync(fileName, td2.cachedTranscript, 'utf-8');
             await interaction.reply({
-                content: `📄 **Transcript — Ticket #${td.num ?? '?'}**`,
+                content: `📄 **Transcript — Ticket #${td2.num ?? '?'}**`,
                 files: [{ attachment: fileName, name: fileName }],
                 ephemeral: true
             });
-
             fs.unlinkSync(fileName);
             return;
         }
 
-        // ── ADD ────────────────────────────────────────────────────────────────
+        // ── ADD ───────────────────────────────────────────────────────────────
         if (interaction.customId === 'btn_add') {
             if (!canAct) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
             const row = new ActionRowBuilder().addComponents(
@@ -522,16 +567,14 @@ async function handleInteraction(interaction, client) {
                     .setPlaceholder('Select members to add to this ticket')
                     .setMinValues(1).setMaxValues(10)
             );
-            return interaction.reply({ content: '➕ Select the members to add:', components: [row], ephemeral: true });
+            return interaction.reply({ content: '➕ Select members to add:', components: [row], ephemeral: true });
         }
 
         // ── REMOVE ────────────────────────────────────────────────────────────
         if (interaction.customId === 'btn_remove') {
             if (!canAct) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
 
-            const td     = getTicketData(db, interaction.guild.id, interaction.channel.id);
             const extras = td.extras ?? [];
-
             if (!extras.length) return interaction.reply({ content: '⚠️ No extra members to remove.', ephemeral: true });
 
             const buttons = extras.map(uid =>
@@ -540,7 +583,6 @@ async function handleInteraction(interaction, client) {
                     .setLabel(interaction.guild.members.cache.get(uid)?.displayName ?? uid)
                     .setStyle(ButtonStyle.Danger)
             );
-
             const rows = [];
             for (let i = 0; i < buttons.length; i += 5)
                 rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
@@ -548,14 +590,13 @@ async function handleInteraction(interaction, client) {
             return interaction.reply({ content: '➖ Click a member to remove them:', components: rows.slice(0, 5), ephemeral: true });
         }
 
-        // ── REMOVE — member button clicked ────────────────────────────────────
+        // ── REMOVE — member button clicked ───────────────────────────────────
         if (interaction.customId.startsWith('kick_member_')) {
             if (!canAct) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
 
             const memberId = interaction.customId.replace('kick_member_', '');
             await interaction.channel.permissionOverwrites.delete(memberId).catch(() => {});
 
-            const td = getTicketData(db, interaction.guild.id, interaction.channel.id);
             td.extras = (td.extras ?? []).filter(id => id !== memberId);
             logAction(db, interaction.guild.id, interaction.channel.id,
                 `${interaction.guild.members.cache.get(memberId)?.user.tag ?? memberId} removed by ${interaction.user.tag}`);
@@ -574,14 +615,14 @@ async function handleInteraction(interaction, client) {
                     .setCustomId('slowmode_select')
                     .setPlaceholder('🐢  Select slow mode duration')
                     .addOptions([
-                        { label: '10 Seconds',  value: '10',   emoji: '🐢', description: '10 second slow mode' },
-                        { label: '30 Seconds',  value: '30',   emoji: '🐢', description: '30 second slow mode' },
-                        { label: '1 Minute',    value: '60',   emoji: '⏱️', description: '1 minute slow mode' },
-                        { label: '5 Minutes',   value: '300',  emoji: '⏱️', description: '5 minute slow mode' },
-                        { label: '10 Minutes',  value: '600',  emoji: '⏱️', description: '10 minute slow mode' },
-                        { label: '15 Minutes',  value: '900',  emoji: '⏱️', description: '15 minute slow mode' },
-                        { label: '30 Minutes',  value: '1800', emoji: '⏱️', description: '30 minute slow mode' },
-                        { label: 'Disable',     value: '0',    emoji: '✅', description: 'Turn off slow mode' }
+                        { label: '10 Seconds',  value: '10',   emoji: '🐢' },
+                        { label: '30 Seconds',  value: '30',   emoji: '🐢' },
+                        { label: '1 Minute',    value: '60',   emoji: '⏱️' },
+                        { label: '5 Minutes',   value: '300',  emoji: '⏱️' },
+                        { label: '10 Minutes',  value: '600',  emoji: '⏱️' },
+                        { label: '15 Minutes',  value: '900',  emoji: '⏱️' },
+                        { label: '30 Minutes',  value: '1800', emoji: '⏱️' },
+                        { label: 'Disable',     value: '0',    emoji: '✅' }
                     ])
             );
             return interaction.reply({ content: '🐢 Select a slow mode duration:', components: [row], ephemeral: true });
@@ -589,9 +630,7 @@ async function handleInteraction(interaction, client) {
 
         // ── TRANSACTIONS LOG ──────────────────────────────────────────────────
         if (interaction.customId === 'btn_transactions') {
-            const td      = getTicketData(db, interaction.guild.id, interaction.channel.id);
             const history = td.history ?? [];
-
             const logEmbed = new EmbedBuilder()
                 .setColor('#ED4245')
                 .setTitle(`📋  Transactions Log — Ticket #${td.num ?? '?'}`)
@@ -600,41 +639,22 @@ async function handleInteraction(interaction, client) {
                         ? history.map(h => `• ${h.text}  —  <t:${h.ts}:R>`).join('\n')
                         : '*No actions logged yet.*'
                 )
-                .setFooter({ text: 'Only visible to you' })
+                .setFooter({ text: 'Visible only to you' })
                 .setTimestamp();
 
             return interaction.reply({ embeds: [logEmbed], ephemeral: true });
         }
-
-        // ── RATING (from DM) ──────────────────────────────────────────────────
-        if (interaction.customId.startsWith('puan_')) {
-            const parts   = interaction.customId.split('_');
-            const puan    = parts[1];
-            const guildId = parts[2];
-            await interaction.update({ content: `⭐ Your rating (**${puan}/5**) has been recorded. Thank you!`, components: [] });
-
-            const logId = db[guildId]?.logChannel;
-            if (logId) {
-                const logChan = client.channels.cache.get(logId);
-                if (logChan) await logChan.send({
-                    content: `⭐ **New Rating**\nUser: \`${interaction.user.tag}\`\nRating: **${puan} / 5 ⭐**`
-                }).catch(() => {});
-            }
-            return;
-        }
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    //  STRING SELECT MENUS
-    // ──────────────────────────────────────────────────────────────────────────
-
-    // ── TICKET CONTROLS ───────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    //  TICKET CONTROLS DROPDOWN
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isStringSelectMenu() && interaction.customId === 't_controls') {
         if (!canAct) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
 
-        const val        = interaction.values[0];
-        const td         = getTicketData(db, interaction.guild.id, interaction.channel.id);
-        const ticketMsg  = await findTicketMessage(interaction.channel, client.user.id);
+        const val       = interaction.values[0];
+        const td        = getTicketData(db, interaction.guild.id, interaction.channel.id);
+        const ticketMsg = await findTicketMessage(interaction.channel, client.user.id);
 
         // ── CLOSE ─────────────────────────────────────────────────────────────
         if (val === 'close') {
@@ -672,14 +692,15 @@ async function handleInteraction(interaction, client) {
             await interaction.channel.permissionOverwrites.edit(td.ownerId, { SendMessages: false }).catch(() => {});
 
             if (ticketMsg) {
-                const embed = EmbedBuilder.from(ticketMsg.embeds[0]);
-                embed.spliceFields(1, 1, { name: '🔒  Status', value: '🔴  Locked', inline: true });
+                const embed  = EmbedBuilder.from(ticketMsg.embeds[0]);
+                const newDesc = patchEmbedDesc(ticketMsg.embeds[0].description, { status: '🔴  Locked' });
+                embed.setDescription(newDesc);
                 await ticketMsg.edit({ embeds: [embed] });
             }
 
             logAction(db, interaction.guild.id, interaction.channel.id, `Locked by ${interaction.user.tag}`);
             saveDb(db);
-            return interaction.reply({ content: '🔒 Ticket locked. User can no longer send messages.' });
+            return interaction.reply({ content: '🔒 Ticket locked. The user can no longer send messages.' });
         }
 
         // ── UNLOCK ────────────────────────────────────────────────────────────
@@ -692,18 +713,21 @@ async function handleInteraction(interaction, client) {
             }).catch(() => {});
 
             if (ticketMsg) {
-                const embed = EmbedBuilder.from(ticketMsg.embeds[0]);
-                embed.spliceFields(1, 1, { name: '🔒  Status', value: '🟢  Open', inline: true });
+                const embed   = EmbedBuilder.from(ticketMsg.embeds[0]);
+                const newDesc = patchEmbedDesc(ticketMsg.embeds[0].description, { status: '🟢  Open' });
+                embed.setDescription(newDesc);
                 await ticketMsg.edit({ embeds: [embed] });
             }
 
             logAction(db, interaction.guild.id, interaction.channel.id, `Unlocked by ${interaction.user.tag}`);
             saveDb(db);
-            return interaction.reply({ content: '🔓 Ticket unlocked. User can send messages again.' });
+            return interaction.reply({ content: '🔓 Ticket unlocked. The user can send messages again.' });
         }
     }
 
-    // ── SLOW MODE — duration selected ─────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    //  SLOW MODE — duration selected
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isStringSelectMenu() && interaction.customId === 'slowmode_select') {
         if (!hasAuth) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
 
@@ -712,7 +736,7 @@ async function handleInteraction(interaction, client) {
 
         const label = seconds === 0
             ? '✅ Slow mode **disabled**.'
-            : `🐢 Slow mode set to **${seconds < 60 ? `${seconds} seconds` : `${seconds / 60} minute(s)`}**.`;
+            : `🐢 Slow mode set to **${seconds < 60 ? `${seconds} second(s)` : `${seconds / 60} minute(s)`}**.`;
 
         logAction(db, interaction.guild.id, interaction.channel.id,
             `Slow mode set to ${seconds}s by ${interaction.user.tag}`);
@@ -721,11 +745,9 @@ async function handleInteraction(interaction, client) {
         return interaction.update({ content: label, components: [] });
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    //  USER SELECT MENUS
-    // ──────────────────────────────────────────────────────────────────────────
-
-    // ── TRANSFER — user selected ───────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    //  TRANSFER — user selected
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isUserSelectMenu() && interaction.customId === 'transfer_user_select') {
         if (!hasAuth) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
 
@@ -735,7 +757,6 @@ async function handleInteraction(interaction, client) {
 
         if (!targetMember) return interaction.update({ content: '❌ Member not found.', components: [] });
 
-        // Must be staff
         const targetIsStaff =
             targetMember.permissions.has(PermissionsBitField.Flags.Administrator) ||
             (guildDb.staffRole && targetMember.roles.cache.has(guildDb.staffRole));
@@ -747,15 +768,15 @@ async function handleInteraction(interaction, client) {
             });
         }
 
-        // Update embed
         const ticketMsg = await findTicketMessage(interaction.channel, client.user.id);
         if (ticketMsg) {
-            const embed = EmbedBuilder.from(ticketMsg.embeds[0]);
-            embed.spliceFields(7, 1, { name: '🙋  Assigned', value: `${targetMember}`, inline: true });
+            const embed   = EmbedBuilder.from(ticketMsg.embeds[0]);
+            const newDesc = patchEmbedDesc(ticketMsg.embeds[0].description, {
+                assignedTo: `${targetMember}`
+            });
+            embed.setDescription(newDesc);
             await ticketMsg.edit({ embeds: [embed] });
         }
-
-        await interaction.channel.send({ content: `🔀 Ticket transferred to **${targetMember.displayName}**.` });
 
         logAction(db, interaction.guild.id, interaction.channel.id,
             `Transferred to ${targetMember.user.tag} by ${interaction.user.tag}`);
@@ -767,11 +788,13 @@ async function handleInteraction(interaction, client) {
         });
     }
 
-    // ── ADD — users selected ───────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    //  ADD — users selected
+    // ══════════════════════════════════════════════════════════════════════════
     if (interaction.isUserSelectMenu() && interaction.customId === 'add_user_ticket') {
         if (!canAct) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
 
-        const td    = getTicketData(db, interaction.guild.id, interaction.channel.id);
+        const td = getTicketData(db, interaction.guild.id, interaction.channel.id);
         if (!td.extras) td.extras = [];
 
         const added = [];
@@ -781,11 +804,10 @@ async function handleInteraction(interaction, client) {
                 ViewChannel: true, SendMessages: true, ReadMessageHistory: true
             }).catch(() => {});
             if (!td.extras.includes(userId)) td.extras.push(userId);
-            const m = interaction.guild.members.cache.get(userId);
-            added.push(m?.displayName ?? `<@${userId}>`);
+            added.push(interaction.guild.members.cache.get(userId)?.displayName ?? `<@${userId}>`);
         }
 
-        if (!added.length) return interaction.update({ content: '⚠️ Selected members are already in the ticket.', components: [] });
+        if (!added.length) return interaction.update({ content: '⚠️ Selected members are already in this ticket.', components: [] });
 
         logAction(db, interaction.guild.id, interaction.channel.id,
             `${added.join(', ')} added by ${interaction.user.tag}`);
