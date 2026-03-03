@@ -458,47 +458,174 @@ async function handleInteraction(interaction, client) {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  GIVEAWAY BUTTON
+    //  🏆  WORLD-CLASS GIVEAWAY BUTTONS
     // ══════════════════════════════════════════════════════════════════════════
+
+    // ── Enter Button ─────────────────────────────────────────────────────────
     if (interaction.isButton() && interaction.customId === 'giveaway_enter') {
-        const msgId = interaction.message.id;
+        await interaction.deferReply({ ephemeral: true });
+
+        const msgId   = interaction.message.id;
         const guildId = interaction.guild.id;
-        
-        if (!db[guildId] || !db[guildId].giveaways || !db[guildId].giveaways[msgId]) {
-            return interaction.reply({ content: '❌ Bu çekiliş artık sistemde bulunmuyor.', ephemeral: true });
+
+        if (!db[guildId]?.giveaways?.[msgId]) {
+            return interaction.editReply({
+                embeds: [new EmbedBuilder()
+                    .setColor(0xED4245)
+                    .setTitle('❌  Giveaway Not Found')
+                    .setDescription('This giveaway no longer exists in the system.')
+                ]
+            });
         }
 
         const gw = db[guildId].giveaways[msgId];
-        if (gw.ended) {
-            return interaction.reply({ content: '❌ Bu çekiliş sona ermiş!', ephemeral: true });
+
+        if (gw.ended || Date.now() > gw.endTime) {
+            return interaction.editReply({
+                embeds: [new EmbedBuilder()
+                    .setColor(0xED4245)
+                    .setTitle('🔴  Giveaway Ended')
+                    .setDescription('This giveaway has already ended. You can no longer enter.')
+                ]
+            });
         }
 
         const userId = interaction.user.id;
-        let actionText = '';
+        const member = interaction.member;
 
-        if (gw.entrants.includes(userId)) {
-            gw.entrants = gw.entrants.filter(id => id !== userId);
-            actionText = 'Çekilişten başarıyla ayrıldınız. 😔';
-        } else {
-            gw.entrants.push(userId);
-            actionText = '🎉 Çekilişe başarıyla katıldınız! Bol şans.';
+        // Role requirement check
+        if (gw.requiredRole && !member.roles.cache.has(gw.requiredRole)) {
+            return interaction.editReply({
+                embeds: [new EmbedBuilder()
+                    .setColor(0xED4245)
+                    .setTitle('🔒  Role Required')
+                    .setDescription(`You need the <@&${gw.requiredRole}> role to enter this giveaway!`)
+                ]
+            });
         }
 
+        // Account age check
+        if (gw.minAccountAge) {
+            const ageDays = (Date.now() - interaction.user.createdTimestamp) / 86400000;
+            if (ageDays < gw.minAccountAge) {
+                return interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor(0xED4245)
+                        .setTitle('📅  Account Too New')
+                        .setDescription(`Your account must be at least **${gw.minAccountAge} days old** to enter.\nYour account is **${Math.floor(ageDays)} days old**.`)
+                    ]
+                });
+            }
+        }
+
+        const uniqueEntrants = [...new Set(gw.entrants)];
+        const alreadyIn = uniqueEntrants.includes(userId);
+
+        if (alreadyIn) {
+            return interaction.editReply({
+                embeds: [new EmbedBuilder()
+                    .setColor(0xFEE75C)
+                    .setTitle('⚠️  Already Entered')
+                    .setDescription([
+                        `You are already entered in the **${gw.prize}** giveaway!`,
+                        '',
+                        `Use the **🚪 Leave** button to withdraw your entry.`,
+                        `🎟️  Your entries: **${gw.entrants.filter(id => id === userId).length}**`
+                    ].join('\n'))
+                ]
+            });
+        }
+
+        // Add entry (with bonus if applicable)
+        const entryCount = (gw.bonusEntries > 1 && gw.requiredRole && member.roles.cache.has(gw.requiredRole))
+            ? gw.bonusEntries : 1;
+        for (let i = 0; i < entryCount; i++) gw.entrants.push(userId);
         saveDb(db);
 
-        const embed = EmbedBuilder.from(interaction.message.embeds[0]);
-        embed.setFooter({ text: `Katılımcı Sayısı: ${gw.entrants.length}` });
+        // Update embed
+        try {
+            const { buildActiveEmbed } = require('./commands/giveaway');
+            const newUniqueCount = [...new Set(gw.entrants)].length;
+            const updatedEmbed = buildActiveEmbed(gw, newUniqueCount);
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('giveaway_enter').setLabel('Enter Giveaway').setEmoji('🎉').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('giveaway_leave').setLabel('Leave').setEmoji('🚪').setStyle(ButtonStyle.Danger)
+            );
+            await interaction.message.edit({ embeds: [updatedEmbed], components: [row] });
+        } catch (_) {}
 
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('giveaway_enter')
-                .setLabel(`Katıl (${gw.entrants.length})`)
-                .setEmoji('🎉')
-                .setStyle(ButtonStyle.Success)
-        );
+        const endTs = Math.floor(gw.endTime / 1000);
+        return interaction.editReply({
+            embeds: [new EmbedBuilder()
+                .setColor(0x57F287)
+                .setTitle('🎉  You\'re In!')
+                .setDescription([
+                    `You've successfully entered the **${gw.prize}** giveaway!`,
+                    '',
+                    `🎟️  Your entries: **${entryCount}** ${entryCount > 1 ? '*(bonus entries applied!)*' : ''}`,
+                    `⏰  Drawing: <t:${endTs}:R>`,
+                    `🏆  Winners: **${gw.winnersCount}**`,
+                    '',
+                    `*Good luck! 🍀*`
+                ].join('\n'))
+                .setFooter({ text: `Total unique entrants: ${[...new Set(gw.entrants)].length}` })
+            ]
+        });
+    }
 
-        await interaction.message.edit({ embeds: [embed], components: [row] });
-        return interaction.reply({ content: actionText, ephemeral: true });
+    // ── Leave Button ─────────────────────────────────────────────────────────
+    if (interaction.isButton() && interaction.customId === 'giveaway_leave') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const msgId   = interaction.message.id;
+        const guildId = interaction.guild.id;
+        const userId  = interaction.user.id;
+
+        if (!db[guildId]?.giveaways?.[msgId]) {
+            return interaction.editReply({
+                embeds: [new EmbedBuilder().setColor(0xED4245).setTitle('❌  Not Found').setDescription('This giveaway no longer exists.')]
+            });
+        }
+
+        const gw = db[guildId].giveaways[msgId];
+
+        if (gw.ended || Date.now() > gw.endTime) {
+            return interaction.editReply({
+                embeds: [new EmbedBuilder().setColor(0xED4245).setTitle('🔴  Too Late').setDescription('This giveaway has already ended.')]
+            });
+        }
+
+        if (!gw.entrants.includes(userId)) {
+            return interaction.editReply({
+                embeds: [new EmbedBuilder().setColor(0xFEE75C).setTitle('⚠️  Not Entered').setDescription(`You haven't entered the **${gw.prize}** giveaway yet!`)]
+            });
+        }
+
+        gw.entrants = gw.entrants.filter(id => id !== userId);
+        saveDb(db);
+
+        try {
+            const { buildActiveEmbed } = require('./commands/giveaway');
+            const newUniqueCount = [...new Set(gw.entrants)].length;
+            const updatedEmbed = buildActiveEmbed(gw, newUniqueCount);
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('giveaway_enter').setLabel('Enter Giveaway').setEmoji('🎉').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('giveaway_leave').setLabel('Leave').setEmoji('🚪').setStyle(ButtonStyle.Danger)
+            );
+            await interaction.message.edit({ embeds: [updatedEmbed], components: [row] });
+        } catch (_) {}
+
+        return interaction.editReply({
+            embeds: [new EmbedBuilder()
+                .setColor(0xED4245)
+                .setTitle('🚪  Entry Withdrawn')
+                .setDescription([
+                    `You have left the **${gw.prize}** giveaway.`,
+                    '',
+                    `You can re-enter at any time before it ends.`
+                ].join('\n'))
+            ]
+        });
     }
 
     // ══════════════════════════════════════════════════════════════════════════
