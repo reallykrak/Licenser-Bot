@@ -1,6 +1,6 @@
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║                  🤖  BOT ENTRY POINT  —  index.js                          ║
-// ║           World-class Giveaway System integrated & upgraded                ║
+// ║                    🤖  BOT ENTRY POINT  —  index.js                        ║
+// ║          World-class Giveaway System v2.0 — Live Timer · DM · Log          ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 const {
@@ -8,7 +8,7 @@ const {
     REST, Routes,
     ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder
 } = require('discord.js');
-const fs = require('fs');
+const fs     = require('fs');
 const config = require('./config.json');
 const trLang = require('./tr.json');
 const enLang = require('./en.json');
@@ -62,113 +62,160 @@ for (const file of eventFiles) {
     else client.on(event.name, (...args) => event.execute(...args, client));
 }
 
-// ─── GIVEAWAY HELPERS (lazy-loaded to avoid circular dep issues) ──────────────
-let _gwHelpers;
-function gwHelpers() {
-    if (!_gwHelpers) _gwHelpers = require('./commands/giveaway');
-    return _gwHelpers;
-}
+// ─── GIVEAWAY HELPER (lazy to avoid circular deps) ───────────────────────────
+let _gw;
+const gw = () => _gw || (_gw = require('./commands/giveaway'));
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║              🏆  WORLD-CLASS GIVEAWAY AUTO-END LOOP                        ║
+// ║          🏆  GIVEAWAY MAIN LOOP  — runs every 10 seconds                   ║
+// ║                                                                              ║
+// ║  What this loop does:                                                        ║
+// ║  1) Every 10s  → check if any giveaways have expired → end them             ║
+// ║  2) Every 60s  → refresh active giveaway embeds (live progress bar!)        ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
+const EMBED_REFRESH_INTERVAL = 60_000; // refresh live timer every 60s
 
 setInterval(async () => {
     try {
-        const db = loadDb();
-        let changed = false;
+        const db      = loadDb();
+        let   changed = false;
 
         for (const guildId in db) {
             const guildData = db[guildId];
             if (!guildData.giveaways) continue;
 
+            const guild = client.guilds.cache.get(guildId);
+            if (!guild) continue;
+
             for (const msgId in guildData.giveaways) {
-                const gw = guildData.giveaways[msgId];
+                const gwData = guildData.giveaways[msgId];
 
-                // Skip already ended or not yet due
-                if (gw.ended || Date.now() <= gw.endTime) continue;
+                // ── Skip ended / cancelled / paused giveaways ────────────────
+                if (gwData.ended || gwData.cancelled || gwData.paused) continue;
 
-                gw.ended = true;
-                changed = true;
-
-                // ── Resolve Discord objects ───────────────────────────────────
-                const guild   = client.guilds.cache.get(guildId);
-                if (!guild) continue;
-                const channel = guild.channels.cache.get(gw.channelId);
+                const channel = guild.channels.cache.get(gwData.channelId);
                 if (!channel) continue;
-                const message = await channel.messages.fetch(msgId).catch(() => null);
-                if (!message) continue;
 
-                try {
-                    const { buildEndedEmbed, buildWinnerAnnouncement, pickWinners } = gwHelpers();
+                const now = Date.now();
 
-                    // ── Pick Winners ──────────────────────────────────────────
-                    const uniqueEntrants = [...new Set(gw.entrants)];
-                    const hasEntrants    = uniqueEntrants.length > 0;
-                    let   winners        = [];
-                    let   winnersText    = '> 😔  *Nobody entered this giveaway.*';
+                // ════════════════════════════════════════════════════════════
+                //  CASE 1: Giveaway has expired → END IT
+                // ════════════════════════════════════════════════════════════
+                if (now > gwData.endTime) {
+                    gwData.ended   = true;
+                    changed        = true;
 
-                    if (hasEntrants) {
-                        winners      = pickWinners(gw.entrants, Math.min(gw.winnersCount, uniqueEntrants.length));
-                        winnersText  = winners.map((id, i) => `> **${i + 1}.** <@${id}>`).join('\n');
-                    }
+                    const message = await channel.messages.fetch(msgId).catch(() => null);
+                    if (!message) continue;
 
-                    // ── Edit original message → ENDED embed (🔴 Red) ─────────
-                    const endedEmbed = buildEndedEmbed(gw, winnersText);
+                    try {
+                        const helpers     = gw();
+                        const uniqueList  = [...new Set(gwData.entrants)];
+                        const hasEntrants = uniqueList.length > 0;
+                        let   winners     = [];
 
-                    const disabledRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('giveaway_ended_enter')
-                            .setLabel(`${gw.entrants.length} Entr${gw.entrants.length === 1 ? 'y' : 'ies'}  ·  Ended`)
-                            .setEmoji('🎉')
-                            .setStyle(ButtonStyle.Secondary)
-                            .setDisabled(true),
-                        new ButtonBuilder()
-                            .setCustomId('giveaway_ended_leave')
-                            .setLabel('Closed')
-                            .setEmoji('🔒')
-                            .setStyle(ButtonStyle.Danger)
-                            .setDisabled(true)
-                    );
+                        if (hasEntrants) {
+                            winners = helpers.pickWinners(gwData.entrants, Math.min(gwData.winnersCount, uniqueList.length));
+                        }
 
-                    await message.edit({ embeds: [endedEmbed], components: [disabledRow] });
+                        gwData.winners = winners;
 
-                    // ── Send winner announcement (🟢 Green) ───────────────────
-                    if (hasEntrants) {
-                        const winnerMentions    = winners.map(id => `<@${id}>`).join('  ');
-                        const announcementEmbed = buildWinnerAnnouncement(gw, winnersText, guildId, msgId);
-
-                        await channel.send({
-                            content: [
-                                '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-                                `🎊  **GIVEAWAY ENDED — WINNERS SELECTED!**`,
-                                '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-                                '',
-                                `🏆  **Congratulations to:** ${winnerMentions}`,
-                                `🎁  **Prize:** ${gw.prize}`,
-                                `📬  Please contact <@${gw.hostId}> to claim your reward!`,
-                            ].join('\n'),
-                            embeds: [announcementEmbed]
+                        // ── Edit original message → ENDED embed (🔴 Red) ────
+                        const endedEmbed = helpers.buildEndedEmbed(gwData, winners);
+                        await message.edit({
+                            embeds:     [endedEmbed],
+                            components: [helpers.buildEndedRow(gwData.entrants.length)]
                         });
 
-                    } else {
-                        // No entries
-                        await channel.send({
-                            embeds: [new EmbedBuilder()
-                                .setTitle('😔  Giveaway Ended — No Winners')
-                                .setColor(0xED4245)
-                                .setDescription([
-                                    `The **${gw.prize}** giveaway ended with no entries.`,
+                        // ── Winner announcement message (🟢 Green) ──────────
+                        if (hasEntrants) {
+                            const mentions   = winners.map(id => `<@${id}>`).join('  ');
+                            const annEmbed   = helpers.buildWinnerAnnouncementEmbed(gwData, winners, guildId, msgId);
+
+                            await channel.send({
+                                content: [
+                                    '╔════════════════════════════════════════╗',
+                                    `   🎊  **GIVEAWAY ENDED — WINNERS PICKED!**`,
+                                    '╚════════════════════════════════════════╝',
                                     '',
-                                    `<@${gw.hostId}> may restart it with \`/giveaway start\`.`
-                                ].join('\n'))
-                                .setTimestamp()
-                            ]
-                        });
-                    }
+                                    `🏆  **Congratulations to:** ${mentions}`,
+                                    `🎁  **Prize:** \`${gwData.prize}\``,
+                                    `📬  Contact <@${gwData.hostId}> to claim your reward!`,
+                                ].join('\n'),
+                                embeds: [annEmbed]
+                            });
 
-                } catch (innerErr) {
-                    console.error(`[Giveaway] Error ending ${msgId}:`, innerErr.message);
+                            // ── DM each winner ───────────────────────────────
+                            for (const winnerId of winners) {
+                                try {
+                                    const user = await client.users.fetch(winnerId);
+                                    await user.send({ embeds: [helpers.buildWinnerDMEmbed(gwData, guildId, msgId)] });
+                                } catch (_) { /* DMs may be disabled */ }
+                            }
+
+                        } else {
+                            // No entries
+                            await channel.send({
+                                embeds: [new EmbedBuilder()
+                                    .setTitle('😔  Giveaway Ended — No Winners')
+                                    .setColor(0xE74C3C)
+                                    .setDescription([
+                                        '```',
+                                        `🎁  PRIZE: ${gwData.prize}`,
+                                        '```',
+                                        `The giveaway ended with **no entries**.`,
+                                        '',
+                                        `<@${gwData.hostId}> may restart it with \`/giveaway start\`.`
+                                    ].join('\n'))
+                                    .setTimestamp()
+                                ]
+                            });
+                        }
+
+                        // ── Send to log channel ──────────────────────────────
+                        if (gwData.logChannelId) {
+                            try {
+                                const logChannel = guild.channels.cache.get(gwData.logChannelId);
+                                const winText = winners.length > 0
+                                    ? winners.map(id => `<@${id}>`).join(', ')
+                                    : '*No winners*';
+                                if (logChannel) {
+                                    await logChannel.send({
+                                        embeds: [gw().buildLogEmbed('end', gwData, `**Winners:** ${winText}`)]
+                                    });
+                                }
+                            } catch (_) {}
+                        }
+
+                        // ── Update server stats ──────────────────────────────
+                        if (db[guildId].gwStats) {
+                            db[guildId].gwStats.totalEntries += gwData.entrants.length;
+                            db[guildId].gwStats.totalWinners += winners.length;
+                        }
+
+                    } catch (err) {
+                        console.error(`[Giveaway] Error ending ${msgId}:`, err.message);
+                    }
+                }
+
+                // ════════════════════════════════════════════════════════════
+                //  CASE 2: Still active → refresh embed every 60s
+                //          This keeps the progress bar and time remaining LIVE.
+                // ════════════════════════════════════════════════════════════
+                else if (now - (gwData.lastEmbedUpdate || 0) >= EMBED_REFRESH_INTERVAL) {
+                    gwData.lastEmbedUpdate = now;
+                    changed = true;
+
+                    try {
+                        const message = await channel.messages.fetch(msgId).catch(() => null);
+                        if (!message) continue;
+
+                        const uniqueCount    = [...new Set(gwData.entrants)].length;
+                        const refreshedEmbed = gw().buildActiveEmbed(gwData, uniqueCount);
+                        const row            = gw().buildActiveRow(uniqueCount);
+
+                        await message.edit({ embeds: [refreshedEmbed], components: [row] });
+                    } catch (_) { /* Message may have been deleted */ }
                 }
             }
         }
@@ -176,7 +223,7 @@ setInterval(async () => {
         if (changed) saveDb(db);
 
     } catch (err) {
-        console.error('[Giveaway Loop]', err.message);
+        console.error('[Giveaway Loop] Unexpected error:', err.message);
     }
 }, 10_000);
 
@@ -194,7 +241,7 @@ client.once('ready', async () => {
     }
 });
 
-// ─── MESSAGE COMMANDS ────────────────────────────────────────────────────────
+// ─── MESSAGE COMMANDS ─────────────────────────────────────────────────────────
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.content.startsWith(config.prefix)) return;
     const args    = message.content.slice(config.prefix.length).trim().split(/ +/);
