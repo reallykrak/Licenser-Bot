@@ -151,10 +151,10 @@ function buildTicketEmbed({ user, catLabel, product, ticketNum, status, assigned
         `🔒  **Status**\n${stat}`,
         sep,
         `📂  **Category** — ${catLabel ?? '—'}`,
-        `📦  **Product**  — \`${product ?? '—'}\``,
-        `🎫  **Ticket**   — \`#${ticketNum}\``,
+        `📦  **Product** — \`${product ?? '—'}\``,
+        `🎫  **Ticket** — \`#${ticketNum}\``,
         sep,
-        `⏱️  **Opened**   — <t:${ts}:R>`,
+        `⏱️  **Opened** — <t:${ts}:R>`,
         `🙋  **Assigned** — ${assign}`,
         sep
     ].join('\n');
@@ -265,7 +265,7 @@ async function handleInteraction(interaction, client) {
                         .setTitle('⭐  Rating Received')
                         .addFields(
                             { name: '👤  User',   value: `\`${interaction.user.tag}\`  (${interaction.user})`, inline: true },
-                            { name: '⭐  Rating', value: `**${puan} / 5**  ${'⭐'.repeat(Number(puan))}`,       inline: true }
+                            { name: '⭐  Rating', value: `**${puan} / 5** ${'⭐'.repeat(Number(puan))}`,       inline: true }
                         )
                         .setTimestamp();
                     await logChan.send({ embeds: [ratingEmbed] }).catch(() => {});
@@ -455,6 +455,50 @@ async function handleInteraction(interaction, client) {
         ], guildDb.tickets[ticketChannel.id]);
 
         return interaction.reply({ content: `✅ Your ticket has been opened: ${ticketChannel}`, ephemeral: true });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  GIVEAWAY BUTTON
+    // ══════════════════════════════════════════════════════════════════════════
+    if (interaction.isButton() && interaction.customId === 'giveaway_enter') {
+        const msgId = interaction.message.id;
+        const guildId = interaction.guild.id;
+        
+        if (!db[guildId] || !db[guildId].giveaways || !db[guildId].giveaways[msgId]) {
+            return interaction.reply({ content: '❌ Bu çekiliş artık sistemde bulunmuyor.', ephemeral: true });
+        }
+
+        const gw = db[guildId].giveaways[msgId];
+        if (gw.ended) {
+            return interaction.reply({ content: '❌ Bu çekiliş sona ermiş!', ephemeral: true });
+        }
+
+        const userId = interaction.user.id;
+        let actionText = '';
+
+        if (gw.entrants.includes(userId)) {
+            gw.entrants = gw.entrants.filter(id => id !== userId);
+            actionText = 'Çekilişten başarıyla ayrıldınız. 😔';
+        } else {
+            gw.entrants.push(userId);
+            actionText = '🎉 Çekilişe başarıyla katıldınız! Bol şans.';
+        }
+
+        saveDb(db);
+
+        const embed = EmbedBuilder.from(interaction.message.embeds[0]);
+        embed.setFooter({ text: `Katılımcı Sayısı: ${gw.entrants.length}` });
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('giveaway_enter')
+                .setLabel(`Katıl (${gw.entrants.length})`)
+                .setEmoji('🎉')
+                .setStyle(ButtonStyle.Success)
+        );
+
+        await interaction.message.edit({ embeds: [embed], components: [row] });
+        return interaction.reply({ content: actionText, ephemeral: true });
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -973,4 +1017,6 @@ async function handleInteraction(interaction, client) {
 
         return interaction.update({ content: `✅ **${added.join(', ')}** added to the ticket.`, components: [] });
     }
+}
+
 }
