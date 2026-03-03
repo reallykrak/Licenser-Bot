@@ -458,207 +458,170 @@ async function handleInteraction(interaction, client) {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  🏆  GIVEAWAY BUTTONS v2.0
+    //  🏆  GIVEAWAY BUTTONS  v3.0
     // ══════════════════════════════════════════════════════════════════════════
-    const gwHelpers = () => require('./commands/giveaway');
+    const gwH = () => require('./commands/giveaway');
 
-    // ── 🎉 Enter Button ───────────────────────────────────────────────────────
+    // ── 🎉 ENTER ─────────────────────────────────────────────────────────────
     if (interaction.isButton() && interaction.customId === 'giveaway_enter') {
         await interaction.deferReply({ ephemeral: true });
 
         const msgId   = interaction.message.id;
         const guildId = interaction.guild.id;
+        const userId  = interaction.user.id;
+        const { errEmbed, okEmbed, buildActiveEmbed, buildActiveRow } = gwH();
 
         const gwData = db[guildId]?.giveaways?.[msgId];
+        if (!gwData) return interaction.editReply({ embeds: [errEmbed('❌  Not Found', 'This giveaway no longer exists.')] });
 
-        if (!gwData) {
-            return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('❌  Not Found').setDescription('This giveaway no longer exists in the system.')] });
+        if (gwData.ended || gwData.cancelled || Date.now() > gwData.endTime)
+            return interaction.editReply({ embeds: [errEmbed('🔴  Ended', 'This giveaway has already ended.')] });
+
+        if (gwData.paused)
+            return interaction.editReply({ embeds: [errEmbed('⏸️  Paused', 'This giveaway is paused. Wait for it to resume!')] });
+
+        // Blacklist check
+        if (db[guildId]?.gwBlacklist?.[userId]) {
+            const bl = db[guildId].gwBlacklist[userId];
+            return interaction.editReply({ embeds: [errEmbed('🚫  Blacklisted', `You are blacklisted from giveaways on this server.\n\n**Reason:** ${bl.reason || 'No reason provided.'}`)] });
         }
 
-        if (gwData.ended || gwData.cancelled || Date.now() > gwData.endTime) {
-            return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🔴  Giveaway Ended').setDescription('This giveaway has already ended.')] });
-        }
-
-        if (gwData.paused) {
-            return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xE67E22).setTitle('⏸️  Giveaway Paused').setDescription('This giveaway is currently paused. Please wait for it to resume!')] });
-        }
-
-        const userId = interaction.user.id;
         const member = interaction.member;
 
-        // ── Role Requirement ──────────────────────────────────────────────────
-        if (gwData.requiredRole && !member.roles.cache.has(gwData.requiredRole)) {
-            return interaction.editReply({
-                embeds: [new EmbedBuilder()
-                    .setColor(0xE74C3C)
-                    .setTitle('🔒  Role Required')
-                    .setDescription(`You need the <@&${gwData.requiredRole}> role to enter this giveaway!`)
-                ]
-            });
-        }
+        // Role requirement
+        if (gwData.requiredRole && !member.roles.cache.has(gwData.requiredRole))
+            return interaction.editReply({ embeds: [errEmbed('🔒  Role Required', `You need <@&${gwData.requiredRole}> to enter!`)] });
 
-        // ── Account Age ───────────────────────────────────────────────────────
+        // Account age
         if (gwData.minAccountAge) {
-            const ageDays = (Date.now() - interaction.user.createdTimestamp) / 86400000;
-            if (ageDays < gwData.minAccountAge) {
-                return interaction.editReply({
-                    embeds: [new EmbedBuilder()
-                        .setColor(0xE74C3C)
-                        .setTitle('📅  Account Too New')
-                        .setDescription(`Your Discord account must be at least **${gwData.minAccountAge} days old** to enter.\nYour account age: **${Math.floor(ageDays)} days**.`)
-                    ]
-                });
-            }
+            const ageDays = (Date.now() - interaction.user.createdTimestamp) / 86_400_000;
+            if (ageDays < gwData.minAccountAge)
+                return interaction.editReply({ embeds: [errEmbed('📅  Account Too New', `Your account must be **${gwData.minAccountAge}+ days old** to enter.\nCurrent age: **${Math.floor(ageDays)}d**`)] });
         }
 
-        // ── Already entered? ──────────────────────────────────────────────────
-        const uniqueEntrants = [...new Set(gwData.entrants)];
-        if (uniqueEntrants.includes(userId)) {
-            const myTickets = gwData.entrants.filter(id => id === userId).length;
-            const endTs     = Math.floor(gwData.endTime / 1000);
-            return interaction.editReply({
-                embeds: [new EmbedBuilder()
-                    .setColor(0xF39C12)
-                    .setTitle('⚠️  Already Entered')
-                    .setDescription([
-                        `You are already entered in the **${gwData.prize}** giveaway!`,
-                        '',
-                        `🎟️  **Your tickets:** \`${myTickets}\``,
-                        `⏰  **Drawing:** <t:${endTs}:R>`,
-                        '',
-                        `*Use the 🚪 **Leave** button to withdraw your entry.*`
-                    ].join('\n'))
-                ]
-            });
+        // Already entered?
+        const alreadyIn = [...new Set(gwData.entrants)].includes(userId);
+        if (alreadyIn) {
+            const myT   = gwData.entrants.filter(id => id === userId).length;
+            const endTs = Math.floor(gwData.endTime / 1000);
+            return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xF39C12).setTitle('⚠️  Already Entered').setDescription([
+                `You're already in the **${gwData.prize}** giveaway!`,
+                '',
+                `🎟️  **Your tickets:** \`${myT}\`   ·   ⏰  Drawing: <t:${endTs}:R>`,
+                '',
+                `*Use the 🚪 **Leave** button to withdraw.*`,
+            ].join('\n'))] });
         }
 
-        // ── Add entries (with bonus) ──────────────────────────────────────────
+        // Add entries (bonus)
         const hasBonus   = gwData.bonusEntries > 1 && gwData.requiredRole && member.roles.cache.has(gwData.requiredRole);
         const entryCount = hasBonus ? gwData.bonusEntries : 1;
         for (let i = 0; i < entryCount; i++) gwData.entrants.push(userId);
         saveDb(db);
 
-        // ── Refresh embed immediately ──────────────────────────────────────────
+        // Refresh embed
         try {
-            const helpers      = gwHelpers();
-            const newUnique    = [...new Set(gwData.entrants)].length;
-            const refreshEmbed = helpers.buildActiveEmbed(gwData, newUnique);
-            const row          = helpers.buildActiveRow(newUnique);
-            await interaction.message.edit({ embeds: [refreshEmbed], components: [row] });
+            const uniq = [...new Set(gwData.entrants)].length;
+            await interaction.message.edit({ embeds: [buildActiveEmbed(gwData, uniq)], components: [buildActiveRow(uniq)] });
         } catch (_) {}
 
-        // ── Confirm to user ───────────────────────────────────────────────────
         const endTs = Math.floor(gwData.endTime / 1000);
-        return interaction.editReply({
-            embeds: [new EmbedBuilder()
-                .setColor(0x2ECC71)
-                .setTitle('🎉  You\'re In!')
-                .setDescription([
-                    `Successfully entered the **${gwData.prize}** giveaway!`,
-                    '',
-                    `\`\`\``,
-                    `🎁  PRIZE: ${gwData.prize}`,
-                    `\`\`\``,
-                    `🎟️  **Your tickets:** \`${entryCount}\`${hasBonus ? '  *(bonus applied! 🚀)*' : ''}`,
-                    `🏆  **Winners:**      \`${gwData.winnersCount}\``,
-                    `⏰  **Drawing:**       <t:${endTs}:R>`,
-                    `👥  **Total entrants:** \`${[...new Set(gwData.entrants)].length}\``,
-                    '',
-                    `*Good luck! 🍀*`
-                ].join('\n'))
-                .setFooter({ text: 'Use the 🚪 Leave button to withdraw your entry' })
-            ]
-        });
+        const uniq  = [...new Set(gwData.entrants)].length;
+        return interaction.editReply({ embeds: [new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setTitle(`🎉  You're In!  —  ${gwData.prize}`)
+            .setDescription([
+                `Successfully entered the **${gwData.prize}** giveaway!`,
+                '',
+                `🎟️  **Your tickets:** \`${entryCount}\`${hasBonus ? '  *(bonus! 🚀)*' : ''}`,
+                `🏆  **Winners:**      \`${gwData.winnersCount}\``,
+                `👥  **Entrants:**     \`${uniq}\``,
+                `⏰  **Drawing:**       <t:${endTs}:R>`,
+                '',
+                `*Good luck! 🍀*`,
+            ].join('\n'))
+            .setFooter({ text: 'Use the 🚪 Leave button to withdraw your entry' })
+        ] });
     }
 
-    // ── 🚪 Leave Button ──────────────────────────────────────────────────────
+    // ── 🚪 LEAVE ─────────────────────────────────────────────────────────────
     if (interaction.isButton() && interaction.customId === 'giveaway_leave') {
         await interaction.deferReply({ ephemeral: true });
 
         const msgId   = interaction.message.id;
         const guildId = interaction.guild.id;
         const userId  = interaction.user.id;
+        const { errEmbed, buildActiveEmbed, buildActiveRow } = gwH();
         const gwData  = db[guildId]?.giveaways?.[msgId];
 
-        if (!gwData) {
-            return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('❌  Not Found').setDescription('This giveaway no longer exists.')] });
-        }
-        if (gwData.ended || Date.now() > gwData.endTime) {
-            return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🔴  Too Late').setDescription('This giveaway has already ended.')] });
-        }
-        if (!gwData.entrants.includes(userId)) {
-            return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xF39C12).setTitle('⚠️  Not Entered').setDescription(`You haven't entered the **${gwData.prize}** giveaway yet!\n\nUse the 🎉 **Enter** button to join.`)] });
-        }
+        if (!gwData)
+            return interaction.editReply({ embeds: [errEmbed('❌  Not Found', 'This giveaway no longer exists.')] });
+        if (gwData.ended || Date.now() > gwData.endTime)
+            return interaction.editReply({ embeds: [errEmbed('🔴  Too Late', 'This giveaway has already ended.')] });
+        if (!gwData.entrants.includes(userId))
+            return interaction.editReply({ embeds: [errEmbed('⚠️  Not Entered', `You haven't entered **${gwData.prize}** yet!`)] });
 
         gwData.entrants = gwData.entrants.filter(id => id !== userId);
         saveDb(db);
 
         try {
-            const helpers   = gwHelpers();
-            const newUnique = [...new Set(gwData.entrants)].length;
-            await interaction.message.edit({ embeds: [helpers.buildActiveEmbed(gwData, newUnique)], components: [helpers.buildActiveRow(newUnique)] });
+            const uniq = [...new Set(gwData.entrants)].length;
+            await interaction.message.edit({ embeds: [buildActiveEmbed(gwData, uniq)], components: [buildActiveRow(uniq)] });
         } catch (_) {}
 
-        return interaction.editReply({
-            embeds: [new EmbedBuilder()
-                .setColor(0xE74C3C)
-                .setTitle('🚪  Entry Withdrawn')
-                .setDescription([
-                    `You have left the **${gwData.prize}** giveaway.`,
-                    '',
-                    `*You can re-enter at any time before it ends.*`
-                ].join('\n'))
-            ]
-        });
+        return interaction.editReply({ embeds: [new EmbedBuilder()
+            .setColor(0xE74C3C)
+            .setTitle(`🚪  Entry Withdrawn  —  ${gwData.prize}`)
+            .setDescription(`You've left the giveaway. You can re-enter anytime before it ends.`)
+        ] });
     }
 
-    // ── 🎟️ My Entries Button ─────────────────────────────────────────────────
+    // ── 🎟️ MY TICKETS ────────────────────────────────────────────────────────
     if (interaction.isButton() && interaction.customId === 'giveaway_myentries') {
         await interaction.deferReply({ ephemeral: true });
 
         const msgId   = interaction.message.id;
         const guildId = interaction.guild.id;
         const userId  = interaction.user.id;
+        const { errEmbed } = gwH();
         const gwData  = db[guildId]?.giveaways?.[msgId];
 
-        if (!gwData) {
-            return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('❌  Not Found').setDescription('This giveaway no longer exists.')] });
+        if (!gwData)
+            return interaction.editReply({ embeds: [errEmbed('❌  Not Found', 'This giveaway no longer exists.')] });
+
+        const myTickets = gwData.entrants.filter(id => id === userId).length;
+        const total     = gwData.entrants.length;
+        const uniq      = [...new Set(gwData.entrants)].length;
+        const endTs     = Math.floor(gwData.endTime / 1000);
+
+        // Win chance: considering bonus tickets
+        const winChance = total > 0
+            ? (1 - Math.pow((total - myTickets) / total, gwData.winnersCount)) * 100
+            : 0;
+
+        if (!myTickets) {
+            return interaction.editReply({ embeds: [new EmbedBuilder()
+                .setColor(0xF39C12)
+                .setTitle(`🎟️  My Tickets  —  ${gwData.prize}`)
+                .setDescription(`You haven't entered yet!\nUse the 🎉 **Enter Giveaway** button to join.`)
+            ] });
         }
 
-        const myTickets  = gwData.entrants.filter(id => id === userId).length;
-        const totalPool  = gwData.entrants.length;
-        const winChance  = totalPool > 0 ? ((myTickets / totalPool) * 100).toFixed(2) : '0.00';
-        const endTs      = Math.floor(gwData.endTime / 1000);
-
-        if (myTickets === 0) {
-            return interaction.editReply({
-                embeds: [new EmbedBuilder()
-                    .setColor(0xF39C12)
-                    .setTitle('🎟️  My Entries')
-                    .setDescription(`You have **not entered** the **${gwData.prize}** giveaway yet!\n\nUse the 🎉 **Enter** button to join.`)
-                ]
-            });
-        }
-
-        return interaction.editReply({
-            embeds: [new EmbedBuilder()
-                .setColor(0x3498DB)
-                .setTitle('🎟️  My Entry Stats')
-                .setDescription([
-                    `\`\`\``,
-                    `🎁  PRIZE: ${gwData.prize}`,
-                    `\`\`\``,
-                    `🎟️  **Your tickets:**     \`${myTickets}\``,
-                    `📊  **Win chance:**       \`${winChance}%\``,
-                    `👥  **Total entries:**    \`${totalPool}\``,
-                    `🏆  **Winners to pick:**  \`${gwData.winnersCount}\``,
-                    `⏰  **Drawing:**           <t:${endTs}:R>`,
-                    '',
-                    `*Good luck! 🍀*`
-                ].join('\n'))
-                .setFooter({ text: `Win chance = your tickets ÷ total entries × 100` })
-            ]
-        });
+        return interaction.editReply({ embeds: [new EmbedBuilder()
+            .setColor(0x3498DB)
+            .setTitle(`🎟️  My Tickets  —  ${gwData.prize}`)
+            .setDescription([
+                `🎟️  **Your tickets:**     \`${myTickets}\``,
+                `📊  **Win chance:**       \`~${winChance.toFixed(2)}%\``,
+                `👥  **Total entrants:**   \`${uniq}\``,
+                `🎰  **Total tickets:**    \`${total}\``,
+                `🏆  **Winners to pick:** \`${gwData.winnersCount}\``,
+                `⏰  **Drawing:**           <t:${endTs}:R>`,
+                '',
+                `*Good luck! 🍀*`,
+            ].join('\n'))
+            .setFooter({ text: 'Win chance calculated using hypergeometric approximation' })
+        ] });
     }
 
     // ══════════════════════════════════════════════════════════════════════════
