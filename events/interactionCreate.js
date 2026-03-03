@@ -1018,5 +1018,3 @@ async function handleInteraction(interaction, client) {
         return interaction.update({ content: `✅ **${added.join(', ')}** added to the ticket.`, components: [] });
     }
 }
-
-}
