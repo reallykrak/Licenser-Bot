@@ -460,7 +460,7 @@ async function handleInteraction(interaction, client) {
     // ══════════════════════════════════════════════════════════════════════════
     //  🏆  GIVEAWAY BUTTONS  v3.0
     // ══════════════════════════════════════════════════════════════════════════
-    const gwH = () => require('./Commands/giveaway.js');
+    const gwH = () => require('../commands/giveaway.js');
 
     // ── 🎉 ENTER ─────────────────────────────────────────────────────────────
     if (interaction.isButton() && interaction.customId === 'giveaway_enter') {
