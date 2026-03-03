@@ -1,8 +1,12 @@
-  const { Client, GatewayIntentBits, Partials, Collection, REST, Routes, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Collection, REST, Routes, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const config = require('./config.json');
 const trLang = require('./tr.json');
 const enLang = require('./en.json');
+
+const DB_PATH = './db.json';
+function loadDb() { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); }
+function saveDb(db) { fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2)); }
 
 const client = new Client({
   intents: [
@@ -44,6 +48,73 @@ for (const file of eventFiles) {
   else client.on(event.name, (...args) => event.execute(...args, client));
 }
 
+// Çekiliş Kontrol Döngüsü (Her 10 saniyede bir kontrol eder)
+setInterval(async () => {
+    try {
+        const db = loadDb();
+        let dbUpdated = false;
+
+        for (const guildId in db) {
+            const guildData = db[guildId];
+            if (!guildData.giveaways) continue;
+
+            for (const msgId in guildData.giveaways) {
+                const gw = guildData.giveaways[msgId];
+                
+                if (!gw.ended && Date.now() > gw.endTime) {
+                    gw.ended = true;
+                    dbUpdated = true;
+
+                    const guild = client.guilds.cache.get(guildId);
+                    if (!guild) continue;
+                    const channel = guild.channels.cache.get(gw.channelId);
+                    if (!channel) continue;
+
+                    try {
+                        const message = await channel.messages.fetch(msgId);
+                        
+                        let winnersText = "Kazanan yok (Katılım olmadı)";
+                        if (gw.entrants.length > 0) {
+                            const shuffled = gw.entrants.sort(() => 0.5 - Math.random());
+                            const winners = shuffled.slice(0, gw.winnersCount);
+                            winnersText = winners.map(id => `<@${id}>`).join(', ');
+                        }
+
+                        const oldEmbed = message.embeds[0];
+                        const endedEmbed = EmbedBuilder.from(oldEmbed)
+                            .setTitle(`🎉 ÇEKİLİŞ BİTTİ: ${gw.prize}`)
+                            .setDescription(`**Kazananlar:** ${winnersText}\n**Ev Sahibi:** <@${gw.hostId}>`)
+                            .setColor('#2b2d31')
+                            .setFooter({ text: `Bitti • Toplam Katılımcı: ${gw.entrants.length}` });
+
+                        const disabledRow = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId('giveaway_ended')
+                                .setLabel(`Katılımcılar: ${gw.entrants.length}`)
+                                .setEmoji('🎉')
+                                .setStyle(ButtonStyle.Secondary)
+                                .setDisabled(true)
+                        );
+
+                        await message.edit({ embeds: [endedEmbed], components: [disabledRow] });
+
+                        if (gw.entrants.length > 0) {
+                            await channel.send({ content: `Tebrikler ${winnersText}! **${gw.prize}** kazandınız!\n🔗 Çekiliş: https://discord.com/channels/${guildId}/${gw.channelId}/${msgId}` });
+                        } else {
+                            await channel.send({ content: `😔 Yeterli katılım olmadığı için **${gw.prize}** çekilişi iptal edildi.` });
+                        }
+                    } catch (err) {
+                        console.error('Çekiliş mesajı bulunamadı veya işlenemedi:', err);
+                    }
+                }
+            }
+        }
+        if (dbUpdated) saveDb(db);
+    } catch (e) {
+        // Hataları sessizce geç
+    }
+}, 10000);
+
 client.once('ready', async () => {
   console.log(`Bot is online: ${client.user.tag}`);
   
@@ -54,11 +125,6 @@ client.once('ready', async () => {
     console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
     console.error('--- SLASH COMMAND LOAD ERROR ---');
-    if (error.code === 'ENOTFOUND') {
-      console.error('DNS/Internet Error: Could not reach discord.com. Please check your internet connection.');
-    } else {
-      console.error(error);
-    }
   }
 });
 
@@ -90,10 +156,6 @@ client.on('messageCreate', async (message) => {
 });
 
 client.login(config.token).catch(err => {
-    if (err.code === 'ENOTFOUND') {
-        console.error('Fatal Error: Connection to discord.com failed. Check your network.');
-    } else {
-        console.error('Login Error:', err);
-    }
+    console.error('Login Error:', err);
 });
-  
+                  
