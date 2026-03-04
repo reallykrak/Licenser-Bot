@@ -91,12 +91,12 @@ async function endGiveaway(guild, channel, message, gwData, guildId, msgId, db) 
         await channel.send({
             content: [
                 '╔══════════════════════════════════════════╗',
-                `   🎊  **GIVEAWAY ENDED — WINNER${winners.length > 1 ? 'S' : ''} PICKED!**`,
+                `   <:admin:1381648094487380111>  **GIVEAWAY ENDED — WINNER${winners.length > 1 ? 'S' : ''} PICKED!**`,
                 '╚══════════════════════════════════════════╝',
                 '',
-                `🏆  **Congratulations to:** ${mentions}`,
-                `🎁  **Prize:** **${gwData.prize}**`,
-                `📬  Contact <@${gwData.hostId}> to claim your reward!`,
+                `<:emoji_16:1381662917904039986>  **Congratulations to:** ${mentions}`,
+                `<:Ping:1478693277124395018>  **Prize:** **${gwData.prize}**`,
+                `<:user:1382109313732186184>  Contact <@${gwData.hostId}> to claim your reward!`,
             ].join('\n'),
             embeds: [helpers.buildWinnerAnnouncementEmbed(gwData, winners, guildId, msgId)],
         });
@@ -113,7 +113,7 @@ async function endGiveaway(guild, channel, message, gwData, guildId, msgId, db) 
     } else {
         await channel.send({
             embeds: [new EmbedBuilder()
-                .setTitle(`😔  ${gwData.prize}  —  No Winners`)
+                .setTitle(`<:Pepe_sadge:1478694552499126325>  ${gwData.prize}  —  No Winners`)
                 .setColor(0xE74C3C)
                 .setDescription([
                     `The giveaway ended with **no entries**.`,
@@ -272,12 +272,12 @@ setInterval(async () => {
 
 // ─── READY ───────────────────────────────────────────────────────────────────
 client.once('ready', async () => {
-    console.log(`✅  Bot online: ${client.user.tag}`);
+    console.log(`🟢  Bot online: ${client.user.tag}`);
     const rest = new REST({ version: '10' }).setToken(config.token);
     try {
         console.log('🔄  Refreshing slash commands...');
         await rest.put(Routes.applicationCommands(client.user.id), { body: commandsData });
-        console.log('✅  Slash commands reloaded.');
+        console.log('🔥  Slash commands reloaded.');
     } catch (err) {
         console.error('❌  Slash command load error:', err.message);
     }
